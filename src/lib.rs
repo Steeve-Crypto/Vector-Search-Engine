@@ -137,6 +137,7 @@ pub struct VectorEngine {
     /// Primary store: id -> full Document (text, embedding, metadata)
     docs: HashMap<Uuid, Document>,
     /// HNSW index for fast approximate search (cosine on normalized vectors)
+    /// Concurrency: use ShardedCollections or DashMap in future for high load (Phase 9) 
     hnsw: hnsw_index::HnswIndex,
     /// Optional sled DB for persistence. When present, ingests are durably written.
     db: Option<sled::Db>,

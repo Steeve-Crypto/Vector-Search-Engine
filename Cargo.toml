@@ -51,6 +51,9 @@ anndists = "0.1"
 # Persistence
 sled = "1.0.0-alpha.124"
 
+# Phase 9 concurrency
+dashmap = "5"
+
 # CLI
 clap = { version = "4.5", features = ["derive", "env"] }
 
