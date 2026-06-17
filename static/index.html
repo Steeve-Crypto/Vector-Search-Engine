@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Vector Search Engine • Demo</title>
     <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+    <!-- Phase 8: Chart.js for visualizations (lightweight, CDN) -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=Space+Grotesk:wght@500;600&amp;display=swap');
         
@@ -145,7 +147,7 @@
     <div class="header">
         <div>
             <h1 style="margin:0; font-size: 2rem;">Vector Search Engine</h1>
-            <p style="margin: 0.25rem 0 0; color: #64748b;">Phase 4 Demo • HNSW + ONNX + Axum</p>
+            <p style="margin: 0.25rem 0 0; color: #64748b;">Phase 8 Demo • Real PQ + gRPC + Viz</p>
         </div>
         <div>
             <a href="/stats" style="color: #64748b; text-decoration: none; font-size: 0.9rem;">Stats →</a>
@@ -199,6 +201,10 @@
             </form>
             
             <div id="search-result" style="margin-top: 1rem;"></div>
+            <!-- Phase 8 viz -->
+            <div style="margin-top: 0.75rem;">
+                <canvas id="score-chart" width="280" height="120" style="background:#0f172a; border-radius:6px;"></canvas>
+            </div>
         </div>
     </div>
 
@@ -230,8 +236,10 @@
             const el = document.getElementById('search-result');
             if (data.results && data.results.length > 0) {
                 let html = `<div class="result"><strong>Top ${data.count} results:</strong>`;
+                const scores = [];
                 data.results.forEach((r, i) => {
                     const pct = Math.round(r.score * 100);
+                    scores.push(r.score);
                     html += `
                         <div class="result-item">
                             <div style="display:flex; justify-content:space-between; font-size:0.9rem;">
@@ -245,9 +253,43 @@
                 });
                 html += '</div>';
                 el.innerHTML = html;
+
+                // Phase 8: draw score chart with Chart.js
+                drawScoreChart(scores);
             } else {
                 el.innerHTML = `<div class="result">No results found.</div>`;
+                drawScoreChart([]);
             }
+        }
+
+        let scoreChartInstance = null;
+        function drawScoreChart(scores) {
+            const canvas = document.getElementById('score-chart');
+            if (!canvas || typeof Chart === 'undefined') return;
+            if (scoreChartInstance) {
+                scoreChartInstance.destroy();
+            }
+            if (!scores.length) {
+                const ctx = canvas.getContext('2d');
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                return;
+            }
+            scoreChartInstance = new Chart(canvas, {
+                type: 'bar',
+                data: {
+                    labels: scores.map((_, i) => '#' + (i+1)),
+                    datasets: [{
+                        label: 'Score',
+                        data: scores,
+                        backgroundColor: '#3b82f6',
+                    }]
+                },
+                options: {
+                    responsive: false,
+                    scales: { y: { beginAtZero: true, max: 1.0 } },
+                    plugins: { legend: { display: false } }
+                }
+            });
         }
 
         // Hook into HTMX to render nicely

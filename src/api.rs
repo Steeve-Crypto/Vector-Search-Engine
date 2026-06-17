@@ -794,15 +794,49 @@ pub fn create_router(collections: Collections) -> Router {
 }
 
 /// Run the HTTP server (called from CLI serve command).
-pub async fn run_server(host: &str, port: u16, collections: Collections) -> anyhow::Result<()> {
+/// collections is wrapped for sharing with gRPC (Phase 8).
+pub async fn run_server(
+    host: &str,
+    port: u16,
+    collections: Arc<TokioMutex<Collections>>,
+) -> anyhow::Result<()> {
     let addr = format!("{}:{}", host, port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     info!("listening on http://{}", addr);
 
-    let app = create_router(collections);
+    let app = create_router_from_arc(collections);
 
     // Use with_connect_info so PeerIpKeyExtractor (and fallbacks in Smart) can get remote addr
     let app = app.into_make_service_with_connect_info::<std::net::SocketAddr>();
     axum::serve(listener, app).await?;
     Ok(())
+}
+
+/// Internal: create router from already-wrapped collections (used by gRPC sharing path).
+pub fn create_router_from_arc(collections: Arc<TokioMutex<Collections>>) -> Router {
+    let state = AppState { collections };
+    // ... same middleware setup as create_router
+    let governor_conf = GovernorConfigBuilder::default()
+        .per_second(5)
+        .burst_size(10)
+        .key_extractor(SmartIpKeyExtractor)
+        .finish()
+        .unwrap();
+
+    Router::new()
+        .route("/ingest", post(ingest_handler))
+        .route("/ingest/batch", post(batch_ingest_handler))
+        .route("/search", post(search_handler))
+        .route("/stats", get(stats_handler))
+        .route("/health", get(health_handler))
+        .route("/metrics", get(metrics_handler))
+        .route("/v1/embeddings", post(openai_embeddings))
+        .nest_service("/ui", ServeDir::new("static").precompressed_gzip())
+        .route("/", get(|| async { axum::response::Redirect::to("/ui/") }))
+        .layer(middleware::from_fn(api_key_auth))
+        .layer(GovernorLayer::new(governor_conf))
+        .layer(TraceLayer::new_for_http())
+        .layer(CorsLayer::permissive())
+        .layer(RequestBodyLimitLayer::new(2 * 1024 * 1024))
+        .with_state(state)
 }

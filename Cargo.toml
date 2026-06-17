@@ -69,11 +69,25 @@ opentelemetry-otlp = { version = "0.16", features = ["trace", "grpc-tonic"] }
 opentelemetry_sdk = { version = "0.23", features = ["rt-tokio"] }
 tracing-opentelemetry = "0.24"
 
+# Phase 8: Real gRPC server (optional feature - requires protoc at build time)
+# cargo build --features grpc   (then cargo run --features grpc -- serve ...)
+tonic = { version = "0.11", optional = true }
+prost = { version = "0.12", optional = true }
+
 [dev-dependencies]
 tempfile = "3"
 tokio-test = "0.4"
 criterion = "0.5"
 
+[features]
+default = []
+# Phase 8 gRPC: enables tonic server. Requires `protoc` (protobuf-compiler) on the build machine.
+grpc = ["dep:tonic", "dep:prost"]
+
 [[bench]]
 name = "search_bench"
 harness = false
+
+[build-dependencies]
+tonic-build = "0.11"
+prost-build = "0.12"

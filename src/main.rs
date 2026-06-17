@@ -14,6 +14,7 @@
 
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
+use std::sync::Arc;
 use tracing::{info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
@@ -240,17 +241,37 @@ fn main() -> anyhow::Result<()> {
         Commands::Serve { host, port, data_dir } => {
             println!("Starting Axum server on http://{}:{} ...", host, port);
             println!("Using data dir: {}", data_dir);
+            println!("(Phase 8) Also starting gRPC on 0.0.0.0:50051");
             info!("loading persistent engine for server...");
             let data_path = std::path::PathBuf::from(data_dir);
             let mut collections = vector_search_engine::Collections::new(&data_path);
-            // Pre-create default collection
             let _ = collections.get_or_create("default", EngineConfig::default());
 
-            // Run async server from sync main
+            // Share for both REST and gRPC (Phase 8)
+            let collections = Arc::new(tokio::sync::Mutex::new(collections));
+
+            // Run async servers
             let rt = tokio::runtime::Runtime::new()?;
             rt.block_on(async move {
+                // Phase 8 gRPC (only when built with --features grpc)
+                #[cfg(feature = "grpc")]
+                {
+                    let grpc_collections = collections.clone();
+                    tokio::spawn(async move {
+                        let grpc_addr = "0.0.0.0:50051";
+                        if let Err(e) = vector_search_engine::grpc_stub::serve_grpc(grpc_addr, grpc_collections).await {
+                            eprintln!("gRPC server error: {}", e);
+                        }
+                    });
+                }
+                #[cfg(not(feature = "grpc"))]
+                {
+                    println!("(gRPC disabled in this build - use --features grpc)");
+                }
+
+                // Start Axum REST
                 if let Err(e) = vector_search_engine::api::run_server(&host, port, collections).await {
-                    eprintln!("server error: {}", e);
+                    eprintln!("Axum server error: {}", e);
                 }
             });
         }

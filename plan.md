@@ -208,3 +208,10 @@ These ensure the project is robust, observable, and production-viable. Prioritiz
 - Security & hardening: request validation, per-collection API keys, rate limiting with backpressure, HTTPS, secrets management.
 - Performance: profiling (flamegraph), optimizations (async batching for embeds, parallel HNSW ops if possible), memory profiling for quant/collections.
 - Demo & ops: full end-to-end demo script, ops runbook (scaling, backup, monitoring alerts).
+
+### Phase 8: Advanced Quantization, gRPC, and Enhanced Visualization
+- Real Product Quantization (PQ) with k-means: replace naive scalar-split PQ with proper trained codebooks (M subquantizers, K=256 centroids per subvector using Lloyd k-means). Train on sample data, use for much better compression (indices instead of per-dim u8), integrate for storage + error metrics. Keep dequant path for HNSW compatibility.
+- Full gRPC server: add tonic + prost, define .proto for core ops (Embed, Ingest, Search, HybridSearch, Stats). Implement server alongside Axum, share Collections state, support CLI flags for ports. Update/remove stub.
+- More UI visualizations: enhance HTMX UI with Chart.js (or other light viz lib) for score histograms, result bars, simple metrics dashboard (e.g. recent quant error, doc counts per collection). Use framework/lib only where it adds value; keep single-file static.
+- Polish: update docs, examples, plan/progress, benchmarks for PQ quality (recall vs size), gRPC client example stub.
+- Exit criteria: working trained PQ with measurable better compression, gRPC callable from e.g. grpcurl or simple client, nicer demo UI with charts.

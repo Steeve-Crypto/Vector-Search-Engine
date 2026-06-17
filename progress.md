@@ -20,6 +20,7 @@
 | 5     | Documentation & Demo          | ✅ Done    | Sample dataset loader (src/dataset.rs + generate_synthetic), eval_recall example + harness (recall@K), excellent README (Mermaid, setup, benchmarks, load testing with oha/wrk, deployment, ADRs notes, demo queries), CONTRIBUTING.md, docs/adr/ (2 ADRs) | Phase 5 complete. All items delivered. |
 | 6     | Advanced (future)             | ✅ Done | Hybrid; metadata filter opt; scalar + PQ quant; collections/multi-index + sharding; gRPC stub + OpenAI; UI+auth+tenancy; quant in sled default; benchmarks w/ quant | All Phase 6 items complete. |
 | 7     | Observability, Testing, CI/CD & Deployment | 🟢 Core Done | Enhanced Prometheus (HNSW gauges + quant_error histograms per collection), OTEL, full CI (test+clippy+docker+actual benches for regression + load-test job using scripts/load_test.sh), k8s/helm, docker observability stacks | Phase 7 core complete. Load + bench-regression + metrics done. |
+| 8     | Advanced PQ + gRPC + UI Viz | 🟡 In progress | Real k-means PQ, full tonic gRPC server, Chart.js viz in UI | ... |
 
 ## Detailed Progress Within Phase 1 (Core Engine)
 

@@ -1,0 +1,75 @@
+syntax = "proto3";
+
+package vectorsearch;
+
+// Phase 8 gRPC API for the vector search engine.
+// Mirrors key REST functionality + OpenAI-like embed.
+
+message EmbedRequest {
+  repeated string texts = 1;
+  string model = 2; // optional, ignored or "all-MiniLM-L6-v2"
+}
+
+message Embedding {
+  repeated float values = 1; // 384 floats
+}
+
+message EmbedResponse {
+  repeated Embedding embeddings = 1;
+  string model = 2;
+}
+
+message SearchRequest {
+  string query = 1;
+  uint32 limit = 2;
+  string collection = 3;
+  bool hybrid = 4;
+  optional float min_score = 5;
+}
+
+message SearchResult {
+  string id = 1;
+  string text = 2;
+  map<string, string> metadata = 3; // simplified string values for proto
+  float score = 4;
+}
+
+message SearchResponse {
+  repeated SearchResult results = 1;
+  uint32 count = 2;
+}
+
+message IngestRequest {
+  string text = 1;
+  string collection = 2;
+  map<string, string> metadata = 3;
+}
+
+message IngestResponse {
+  string id = 1;
+  string collection = 2;
+}
+
+message StatsRequest {
+  string collection = 1;
+}
+
+message StatsResponse {
+  uint64 num_documents = 1;
+  uint32 embedding_dim = 2;
+  string index_type = 3;
+}
+
+service VectorService {
+  // Embed text(s) -> vectors (compatible with OpenAI style)
+  rpc Embed(EmbedRequest) returns (EmbedResponse);
+
+  // Semantic (or hybrid) search
+  rpc Search(SearchRequest) returns (SearchResponse);
+
+  // Ingest a document
+  rpc Ingest(IngestRequest) returns (IngestResponse);
+
+  // Engine stats
+  rpc Stats(StatsRequest) returns (StatsResponse);
+}
