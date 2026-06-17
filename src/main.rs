@@ -74,6 +74,10 @@ enum Commands {
         /// Use hybrid search (keyword + vector, Phase 6)
         #[arg(long)]
         hybrid: bool,
+
+        /// HNSW ef_search override (Phase 9, higher = better recall/slower)
+        #[arg(long)]
+        ef_search: Option<usize>,
     },
 
     /// Print engine statistics
@@ -200,7 +204,7 @@ fn main() -> anyhow::Result<()> {
             // Persistence is automatic via sled in open_persistent mode.
         }
 
-        Commands::Search { query, limit, full, hybrid } => {
+        Commands::Search { query, limit, full, hybrid, ef_search } => {
             if engine.is_empty() {
                 println!("(no documents ingested yet in this session)");
                 println!("Tip: run `cargo run -- ingest --text \"example text\"` first");
@@ -211,7 +215,11 @@ fn main() -> anyhow::Result<()> {
                 engine.hybrid_search(&query, limit)?
             } else {
                 let query_emb = embed(&query)?;
-                engine.search(&query_emb, limit)?
+                if let Some(ef) = ef_search {
+                    engine.search_with_ef(&query_emb, limit, ef)?
+                } else {
+                    engine.search(&query_emb, limit)?
+                }
             };
 
             println!("Top {} results for query: {:?} (hybrid={})", results.len(), query, hybrid);

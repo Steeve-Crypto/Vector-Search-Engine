@@ -179,6 +179,10 @@ impl HnswIndex {
         self.search_with_ef(query, limit, self.config.default_ef_search)
     }
 
+    pub fn default_ef(&self) -> usize {
+        self.config.default_ef_search
+    }
+
     /// Search with explicit `ef` parameter (controls quality vs speed).
     pub fn search_with_ef(&self, query: &[f32], limit: usize, ef: usize) -> Result<Vec<(Uuid, f32)>> {
         if query.len() != EMBED_DIM {

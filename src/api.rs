@@ -81,7 +81,8 @@ pub struct SearchRequest {
     pub hybrid: bool,  // Phase 6: enable hybrid keyword + vector search
     #[serde(default = "default_collection")]
     pub collection: String,
-    // Future: filters, ef_search override, etc.
+    #[serde(default)]
+    pub ef_search: Option<usize>,  // Phase 9: override HNSW ef for quality/speed
 }
 
 fn default_limit() -> usize {
@@ -105,6 +106,24 @@ pub struct StatsResponse {
     pub num_documents: usize,
     pub embedding_dim: usize,
     pub index_type: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct BatchSearchRequest {
+    pub queries: Vec<String>,
+    #[serde(default = "default_limit")]
+    pub limit: usize,
+    #[serde(default)]
+    pub collection: String,
+    #[serde(default)]
+    pub hybrid: bool,
+    #[serde(default)]
+    pub ef_search: Option<usize>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct BatchSearchResponse {
+    pub results: Vec<Vec<SearchResult>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -261,7 +280,11 @@ pub async fn search_handler(
         engine.hybrid_search(&payload.query, fetch_k)?
     } else {
         let query_emb = embed(&payload.query)?;
-        engine.search(&query_emb, fetch_k)?
+        if let Some(ef) = payload.ef_search {
+            engine.search_with_ef(&query_emb, fetch_k, ef)?
+        } else {
+            engine.search(&query_emb, fetch_k)?
+        }
     };
     // timer drops here and records latency
 
@@ -327,6 +350,34 @@ pub async fn health_handler() -> Json<HealthResponse> {
     Json(HealthResponse {
         status: "ok".to_string(),
     })
+}
+
+pub async fn batch_search_handler(
+    State(state): State<AppState>,
+    Json(payload): Json<BatchSearchRequest>,
+) -> Result<Json<BatchSearchResponse>, ApiError> {
+    if payload.queries.is_empty() {
+        return Err(ApiError::BadRequest("queries cannot be empty".into()));
+    }
+    let mut cols = state.collections.lock().await;
+    let engine = cols.get_or_create(&payload.collection, EngineConfig::default())?;
+
+    let mut all = vec![];
+    for q in payload.queries {
+        let fetch_k = if payload.ef_search.is_some() { payload.limit * 2 } else { payload.limit }; // simple
+        let res = if payload.hybrid {
+            engine.hybrid_search(&q, fetch_k)?
+        } else {
+            let emb = embed(&q)?;
+            if let Some(ef) = payload.ef_search {
+                engine.search_with_ef(&emb, fetch_k, ef)?
+            } else {
+                engine.search(&emb, fetch_k)?
+            }
+        };
+        all.push(res);
+    }
+    Ok(Json(BatchSearchResponse { results: all }))
 }
 
 // Lightweight metrics implementation (no `prometheus` crate).
@@ -776,6 +827,7 @@ pub fn create_router(collections: Collections) -> Router {
         .route("/ingest", post(ingest_handler))
         .route("/ingest/batch", post(batch_ingest_handler))
         .route("/search", post(search_handler))
+        .route("/search/batch", post(batch_search_handler))
         .route("/stats", get(stats_handler))
         .route("/health", get(health_handler))
         .route("/metrics", get(metrics_handler))

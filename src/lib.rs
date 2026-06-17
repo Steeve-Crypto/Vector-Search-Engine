@@ -311,6 +311,11 @@ impl VectorEngine {
     /// All embeddings are assumed L2-normalized.
     /// Returns top `limit` results with cosine similarity scores (higher = better).
     pub fn search(&self, query_embedding: &[f32], limit: usize) -> Result<Vec<SearchResult>> {
+        self.search_with_ef(query_embedding, limit, self.hnsw.default_ef())
+    }
+
+    /// Search with explicit ef (controls quality vs speed, Phase 9).
+    pub fn search_with_ef(&self, query_embedding: &[f32], limit: usize, ef: usize) -> Result<Vec<SearchResult>> {
         if query_embedding.len() != EMBED_DIM {
             return Err(VectorError::DimMismatch {
                 expected: EMBED_DIM,
@@ -323,7 +328,7 @@ impl VectorEngine {
 
         let neighbours = self
             .hnsw
-            .search(query_embedding, limit)
+            .search_with_ef(query_embedding, limit, ef)
             .map_err(|e| VectorError::Internal(e.to_string()))?;
 
         let results: Vec<SearchResult> = neighbours
