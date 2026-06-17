@@ -129,6 +129,25 @@ mod tests {
         let err = pq.quantization_error(&v);
         assert!(err >= 0.0);
     }
+
+    // Phase 9: property style for roundtrip
+    #[test]
+    fn test_pq_roundtrip_property() {
+        for i in 0..10 {
+            let mut v = vec![0.0f32; 16];
+            for (j, x) in v.iter_mut().enumerate() {
+                *x = ((i + j) as f32 / 10.0) - 0.5;
+            }
+            let norm: f32 = v.iter().map(|x| x*x).sum::<f32>().sqrt().max(1e-6);
+            for x in &mut v { *x /= norm; }
+            let pq = ProductQuantizer::train(&[v.clone()], 4, 8);
+            let codes = pq.quantize(&v);
+            let back = pq.dequantize(&codes);
+            let err = pq.quantization_error(&v);
+            assert!(err < 0.5, "roundtrip err too high");
+            assert_eq!(back.len(), v.len());
+        }
+    }
 }
 
 /// Real Product Quantization (PQ) with k-means (Phase 8).
