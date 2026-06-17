@@ -211,6 +211,7 @@ Usage:
 - Python example: examples/rag_adapter.py (uses REST for retrieval + LLM).
 - JS/TS/Go notes: use fetch + /v1/retrieve then augment (see examples).
 - Lib helper: engine.retrieve(query, k, hybrid)
+- LangChain example: use as retriever via /v1/retrieve, full RAG with Ollama in docs.
 
 This turns the vector engine into a complete private RAG backend without exposing data.
 
