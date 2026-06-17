@@ -200,6 +200,24 @@ cargo run -- search --query "high performance rust" --limit 3
 
 Semantic power demo: "rust safety" ranks rust docs over python ones.
 
+## Phase 6 Advanced Features (in progress)
+
+- Hybrid search (vector + keyword overlap): use `--hybrid` or `"hybrid": true`
+- Metadata filtering optimization: over-fetch when filter/min_score present; supports JSON equality e.g. `{"source": "demo"}`
+- Scalar quantization: see `src/quantization.rs` for `quantize`, `dequantize`, `QuantizedVector` (4x memory savings for storage)
+
+Example quantized:
+```rust
+use vector_search_engine::quantization::QuantizedVector;
+let qv = QuantizedVector::from_vec(&embedding);
+let restored = qv.to_vec();  // approx
+```
+```
+
+For full quantization in HNSW, future work (custom dist or index on quantized).
+
+Other planned: PQ, multiple collections, gRPC, etc. See plan.md.
+
 For production, pre-download model in image or init container, set API_KEY, use HTTPS.
 
 ## Development

@@ -210,16 +210,14 @@ fn main() -> anyhow::Result<()> {
             println!("Using data dir: {}", data_dir);
             info!("loading persistent engine for server...");
             let data_path = std::path::PathBuf::from(data_dir);
-            let engine = vector_search_engine::VectorEngine::open_persistent(&data_path, EngineConfig::default())
-                .unwrap_or_else(|e| {
-                    warn!(error = %e, "failed to open persistent store, starting fresh in-memory for server");
-                    vector_search_engine::VectorEngine::new(EngineConfig::default())
-                });
+            let mut collections = vector_search_engine::Collections::new(&data_path);
+            // Pre-create default collection
+            let _ = collections.get_or_create("default", EngineConfig::default());
 
             // Run async server from sync main
             let rt = tokio::runtime::Runtime::new()?;
             rt.block_on(async move {
-                if let Err(e) = vector_search_engine::api::run_server(&host, port, engine).await {
+                if let Err(e) = vector_search_engine::api::run_server(&host, port, collections).await {
                     eprintln!("server error: {}", e);
                 }
             });

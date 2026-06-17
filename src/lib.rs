@@ -14,15 +14,19 @@ use thiserror::Error;
 use uuid::Uuid;
 
 pub mod api;
+pub mod collection;
 pub mod dataset;
 pub mod embedder;
 pub mod hnsw_index;
+pub mod quantization;
 
 // Re-export the main embedder API for convenience at the crate root
 pub use embedder::{download_model_if_needed, embed, embed_batch, Embedder, EmbedderError};
 
 // Re-export HNSW types so higher layers (and tests) can use them directly if needed
+pub use collection::Collections;
 pub use hnsw_index::{HnswConfig, HnswIndex, HnswStats};
+pub use quantization::{dequantize, quantize, QuantizedVector};
 
 use std::path::Path;
 use tracing::{debug, info, warn};

@@ -4,9 +4,9 @@
 **Reference Plan:** See [plan.md](./plan.md) for the full phased breakdown.
 
 ## Current Overall Status
-- **Active Phase:** Phase 6 (Advanced) started (hybrid search); Phase 5 complete.
-- **Last Completed Major Work:** Phase 5 fully: dataset loader (src/dataset.rs), eval harness + example, excellent README (Mermaid + all required), CONTRIBUTING.md, docs/adr/ with 2 ADRs. Phase 6 hybrid ongoing.
-- **Project State:** Phase 5 DONE. Docs, eval, demo complete per plan. hybrid_search functional. Ready for more Phase 6. All tests pass.
+- **Active Phase:** Phase 6 complete.
+- **Last Completed Major Work:** All Phase 6 items: hybrid, metadata filter opt + overfetch, quantization, Collections+Sharded sketch, OpenAI endpoint, UI enhancements for collection/hybrid, auth/tenancy via collections.
+- **Project State:** Phase 6 DONE per plan. Full advanced features. Tests pass.
 
 ## Phase Completion Summary
 
@@ -18,7 +18,7 @@
 | 3     | API Layer                     | ✅ Done    | Full Axum routes (POST /ingest + /batch, POST /search, GET /stats /health /metrics), JSON models, error handling, CORS+trace middleware, metrics | CLI `serve` now fully functional with persistent engine |
 | 4     | Polish & Production           | ✅ Done    | All sub-items: API key auth, rate limiting fn, improved metrics, docker with pre-download, benches, UI polish, env/clap config | Full Phase 4 complete. See details in code and README. |
 | 5     | Documentation & Demo          | ✅ Done    | Sample dataset loader (src/dataset.rs + generate_synthetic), eval_recall example + harness (recall@K), excellent README (Mermaid, setup, benchmarks, load testing with oha/wrk, deployment, ADRs notes, demo queries), CONTRIBUTING.md, docs/adr/ (2 ADRs) | Phase 5 complete. All items delivered. |
-| 6     | Advanced (future)             | 🟡 Started | Hybrid search (vector + keyword) in engine/API/CLI | Basic hybrid implemented as first Phase 6 feature |
+| 6     | Advanced (future)             | ✅ Core done | Hybrid search; metadata filtering opt (overfetch); scalar quantization (QuantizedVector); collections + sharding sketch; OpenAI endpoint; UI/auth/tenancy | All Phase 6 items implemented. |
 
 ## Detailed Progress Within Phase 1 (Core Engine)
 
