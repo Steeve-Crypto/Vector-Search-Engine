@@ -215,3 +215,15 @@ These ensure the project is robust, observable, and production-viable. Prioritiz
 - More UI visualizations: enhance HTMX UI with Chart.js (or other light viz lib) for score histograms, result bars, simple metrics dashboard (e.g. recent quant error, doc counts per collection). Use framework/lib only where it adds value; keep single-file static.
 - Polish: update docs, examples, plan/progress, benchmarks for PQ quality (recall vs size), gRPC client example stub.
 - Exit criteria: working trained PQ with measurable better compression, gRPC callable from e.g. grpcurl or simple client, nicer demo UI with charts.
+
+### Phase 9: Scalability, Advanced Persistence, and Ecosystem
+- Distributed and sharded mode: expand the sharding sketch in `collection.rs` to a functional `ShardedCollections` with routing (hash-based or consistent hashing). Support cross-shard search via gRPC forwarding between instances. Basic replication sketch.
+- Advanced HNSW persistence: make `hnswio` dump/load the primary path (prefer on open, fallback to sled rebuild). Add dump versioning, automatic periodic dumps on ingest volume, and `save_hnsw` integration in `VectorEngine`.
+- Enhanced search features: expose `ef_search` override in API/CLI/gRPC. Support for `min_score`, batched search, and improved metadata filtering (post-filter with better over-fetch or simple index-side pruning).
+- Full quantization integration: default to trained PQ for sled storage (already prototyped). Explore quantized distance in HNSW (or keep dequant). Benchmarks comparing scalar vs PQ recall/size/latency.
+- Concurrency and performance: replace global Mutex with finer-grained locking or DashMap for docs/HNSW in high-throughput scenarios. Async batch embedding. Profile and optimize embed + search paths.
+- Ecosystem and clients: provide a basic Rust gRPC client example. Add Python interop notes (via tonic or gRPC). Simple RAG pattern example (ingest + retrieve + prompt template). OpenAPI spec (utoipa).
+- Security & config: per-collection API keys, mTLS for gRPC, full Config struct (env + file). Expose HNSW params (M, ef_construction, ef_search) at startup.
+- Testing & evaluation: property-based tests for PQ roundtrips and recall. Expanded `eval_recall` with SIFT-like datasets or synthetic clusters. CI matrix for different doc scales and PQ configs.
+- Ops & docs: full ops runbook (scaling shards, backup sled + dumps, monitoring). Update README with Phase 9 features, add more ADRs for persistence and sharding choices.
+- Exit criteria: functional sharded setup (local), reliable HNSW dump/load as default, PQ as storage default with public benchmarks, working gRPC client example, exposed search params.
