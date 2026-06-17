@@ -142,6 +142,8 @@ pub struct VectorEngine {
     db: Option<sled::Db>,
     /// Trained PQ for storage compression (Phase 8 polish). Uses default trained instance.
     pq: Option<ProductQuantizer>,
+    /// Path for HNSW dumps (Phase 9). Enables automatic + explicit persistence.
+    hnsw_dump_path: Option<std::path::PathBuf>,
 }
 
 impl VectorEngine {
@@ -159,6 +161,7 @@ impl VectorEngine {
             hnsw: hnsw_index::HnswIndex::new(hnsw_config),
             db: None,
             pq: Some(default_product_quantizer()),
+            hnsw_dump_path: None,
         }
     }
 
@@ -176,16 +179,23 @@ impl VectorEngine {
         let mut engine = Self::new(config);
         engine.db = Some(db.clone());
         engine.pq = Some(default_product_quantizer());
+        engine.hnsw_dump_path = Some(data_dir.to_path_buf());
 
-        // Phase 8 polish: prefer loading HNSW graph dump if available for fast startup
+        // Phase 9: prefer HNSW dump as primary (with version check)
         let hnsw_config = hnsw_index::HnswConfig::default();
         let mut hnsw_loaded_from_dump = false;
-        if let Ok(loaded_hnsw) = hnsw_index::HnswIndex::load(data_dir, "hnsw", hnsw_config) {
-            if loaded_hnsw.len() > 0 {
-                engine.hnsw = loaded_hnsw;
-                hnsw_loaded_from_dump = true;
-                info!("HNSW graph loaded from dump (skipping rebuild)");
+        let ver_path = data_dir.join("hnsw.version");
+        let version_ok = std::fs::read_to_string(&ver_path).map(|v| v.trim() == "1").unwrap_or(false);
+        if version_ok {
+            if let Ok(loaded_hnsw) = hnsw_index::HnswIndex::load(data_dir, "hnsw", hnsw_config) {
+                if loaded_hnsw.len() > 0 {
+                    engine.hnsw = loaded_hnsw;
+                    hnsw_loaded_from_dump = true;
+                    info!("HNSW graph loaded from dump (primary path, v1)");
+                }
             }
+        } else if ver_path.exists() {
+            warn!("HNSW dump version mismatch or missing; falling back to sled rebuild");
         }
 
         // Load docs from sled (always). Only insert to HNSW if not loaded from dump.
@@ -274,6 +284,16 @@ impl VectorEngine {
                 .map_err(|e| VectorError::Internal(e.to_string()))?;
             let _ = db.flush();
             info!(db_len_after_write = db.len(), "wrote document to sled (using PQ by default)");
+
+            // Phase 9: automatic periodic HNSW dump (every 100 docs) + versioning sidecar
+            if let Some(dump_dir) = &self.hnsw_dump_path {
+                if self.docs.len() % 100 == 0 {
+                    let _ = self.hnsw.dump(dump_dir, "hnsw");
+                    // simple version sidecar
+                    let ver_path = dump_dir.join("hnsw.version");
+                    let _ = std::fs::write(ver_path, b"1");
+                }
+            }
         }
 
         self.docs.insert(id, doc);
@@ -422,7 +442,11 @@ impl VectorEngine {
     /// Dump the current HNSW graph for fast future restarts (Phase 8 integration).
     /// Call this after significant ingests for snapshotting. Labels sidecar is written too.
     pub fn save_hnsw(&self, dir: &Path, basename: &str) -> hnsw_index::Result<()> {
-        self.hnsw.dump(dir, basename)
+        let res = self.hnsw.dump(dir, basename);
+        if res.is_ok() {
+            let _ = std::fs::write(dir.join(format!("{}.version", basename)), b"1");
+        }
+        res
     }
 
     /// Train (or retrain) the internal PQ on representative sample embeddings.
