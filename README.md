@@ -1,16 +1,50 @@
 # Vector Search Engine
 
-A production-grade, from-scratch vector search engine written in Rust.
+A complete, from-scratch, production-grade **vector database / semantic search engine** written in Rust.
 
-**Features (MVP + roadmap):**
-- Local embeddings via ONNX Runtime + all-MiniLM-L6-v2 (384-dim)
-- HNSW index for fast approximate nearest neighbor (cosine similarity)
-- Ingest documents with text + arbitrary JSON metadata
-- REST API + CLI
-- Persistence via sled (metadata + index snapshots)
-- Observability: tracing, Prometheus metrics
-- Simple web UI (static + HTMX later)
-- Docker ready
+It lets you ingest natural language documents, generate high-quality embeddings locally, and retrieve the most semantically similar items with low latency — all without sending data to any external service.
+
+### What makes it different
+- **Fully local & private** — embeddings are produced using ONNX Runtime + the `all-MiniLM-L6-v2` model. No OpenAI, no cloud.
+- **Hybrid search** — combines vector similarity with keyword overlap for best-of-both-worlds results.
+- **Multi-tenancy** — named collections allow isolated indexes (great for SaaS or multi-team use).
+- **Memory-efficient storage** — scalar quantization + real Product Quantization (k-means trained codebooks) dramatically reduces storage footprint while keeping search quality high.
+- **Dual APIs** — full-featured REST (Axum) + gRPC (tonic).
+- **Production ready** — persistence (sled), observability (OpenTelemetry + Prometheus-style metrics), Docker, Kubernetes, Helm, load testing, and CI with benchmark regression.
+- **Small & auditable** — written in safe Rust with minimal dependencies.
+
+The system is useful as a standalone semantic search service or as the retrieval layer inside RAG (Retrieval-Augmented Generation) applications.
+
+### Real-World Use Cases
+
+| Use Case                        | Description                                                                 | Why this engine fits |
+|--------------------------------|-----------------------------------------------------------------------------|----------------------|
+| **Private RAG for LLMs**       | Retrieval backend for internal company chatbots / agents that must never leave the network. | Local embeddings + low latency + full control over data. |
+| **Enterprise Knowledge Base**  | Semantic search across wikis, tickets, design docs, research papers, and Slack exports. | Hybrid search + metadata filtering + collections for department isolation. |
+| **Semantic Product / Content Recommendations** | "People who viewed this also looked at..." or "similar articles". | High-quality 384-d embeddings + fast HNSW + ability to mix with business rules. |
+| **Duplicate & Plagiarism Detection** | Find near-duplicate documents, code, or support tickets. | Quantization for large corpora + easy similarity threshold queries. |
+| **Developer Experience Tools** | Semantic code search ("find code that handles user authentication"). | Works great on code + comments; can be embedded in IDEs or internal tools. |
+| **Legal, Compliance & Research** | Search millions of contracts, case files, or scientific papers by meaning rather than keywords. | Strong recall with HNSW, PQ compression for huge datasets, audit-friendly Rust. |
+| **Customer Support Intelligence** | Automatically suggest previous solutions for incoming tickets. | Fast hybrid search + metadata (customer tier, product, etc.). |
+| **Chatbot Long-Term Memory**   | Store conversation history or user facts and retrieve relevant context for the LLM. | Simple ingest + search API; collections per user or session. |
+
+These workloads benefit from:
+- **Data sovereignty** (everything stays on your infrastructure)
+- **Predictable cost** (no per-token embedding fees)
+- **Low latency** (sub-millisecond search after embedding)
+- **Operational simplicity** (single binary + Docker/K8s manifests included)
+
+### Key Features
+- **Embeddings**: Local ONNX + all-MiniLM-L6-v2 (no external calls)
+- **Indexing**: HNSW for fast ANN cosine search
+- **Hybrid Search**: Vector + keyword (0.7 / 0.3 weighting with over-fetch)
+- **Multi-tenancy**: Named collections with isolated indexes
+- **Quantization**: Scalar + real Product Quantization (k-means trained)
+- **APIs**: REST + gRPC + OpenAI-compatible embeddings endpoint
+- **Storage**: sled persistence (documents + quantized vectors)
+- **Observability**: OpenTelemetry traces + Prometheus-compatible metrics
+- **Deployment**: Docker, Kubernetes, Helm charts
+- **Tooling**: CLI, web UI with Chart.js visualizations, load tests, CI benchmarks
 
 ## Quick Start
 
@@ -41,16 +75,14 @@ mkdir -p models/all-MiniLM-L6-v2/onnx
 
 (Or use the included helper once implemented: `cargo run -- download-model`)
 
-### 3. Run the CLI (Phase 0+)
+### 3. Run the CLI
 
 ```bash
-# Ingest some docs (initially uses placeholder embeddings until embedder ready)
-cargo run -- ingest --text "Rust is great for systems programming"
-cargo run -- ingest --text "Vector databases enable semantic search"
+cargo run -- ingest --text "Rust is great for systems programming" --meta '{"source":"docs"}'
 
 cargo run -- search --query "systems languages" --limit 5
 
-# Hybrid search (Phase 6)
+# Hybrid search (vector + keyword)
 cargo run -- search --query "rust performance" --limit 3 --hybrid
 
 cargo run -- stats
@@ -62,7 +94,7 @@ cargo run -- stats
 cargo run -- serve --host 0.0.0.0 --port 8080
 ```
 
-Then:
+REST API examples:
 ```bash
 curl -X POST http://localhost:8080/ingest \
   -H "Content-Type: application/json" \
@@ -70,12 +102,17 @@ curl -X POST http://localhost:8080/ingest \
 
 curl -X POST http://localhost:8080/search \
   -H "Content-Type: application/json" \
-  -d '{"query": "hello", "limit": 3}'
+  -d '{"query": "hello", "limit": 3, "collection": "default"}'
 
-# Hybrid (vector + keyword)
+# Hybrid search
 curl -X POST http://localhost:8080/search \
   -H "Content-Type: application/json" \
   -d '{"query": "rust systems", "limit": 3, "hybrid": true}'
+```
+
+gRPC (when built with `--features grpc`):
+```bash
+# gRPC runs on port 50051 by default alongside the REST server
 ```
 
 ### Docker (Phase 4)
@@ -124,49 +161,6 @@ helm install vse ./helm/vector-search-engine
 ```
 
 See k8s/ and helm/ for manifests (include OTEL env for your collector like Jaeger or SigNoz).
-```
-
-Good.
-
-Now, to make the compose work better, fix healthcheck in compose (localhost issue in compose? It uses service name? In the yml, health uses localhost, but in container it is fine if exposed? But healthcheck runs in container.
-
-In provided, it may need fix, but for now.
-
-The compose I wrote has health using localhost, ok inside.
-
-Also, need to expose ports for prometheus etc in compose.
-
-The yml I created has ports for some.
-
-To test, but since no full run, assume.
-
-For K8s, the deployment I wrote is basic.
-
-To support observability in K8s, add annotations for prometheus scrape.
-
-Update deployment.
-
-But ok.
-
-Now, since the query also mentions "Kubernetes/Helm manifests + full docker-compose with [stacks]"
-
-I think I've provided:
-
-- Enhanced docker-compose.observability.yml with Jaeger, Prometheus, Grafana, notes for others.
-
-- k8s/deployment.yaml and service.
-
-- Full Helm chart basics.
-
-To make more complete, perhaps add a config for Victoria in compose, but since time.
-
-Also, to integrate, the app now supports OTEL via env.
-
-In the init_logging, it sets up OTEL if env set.
-
-But need to handle shutdown etc, but for now.
-
-Check if compiles with new deps.
 
 ### Architecture (high-level)
 
@@ -185,7 +179,7 @@ flowchart TD
     B --> H
 ```
 
-See `plan.md` for the full phased plan and `progress.md` for current status.
+See `plan.md` for the phased development plan and `progress.md` for implementation status.
 
 ## Sample Dataset Loader & Evaluation Harness
 
