@@ -148,6 +148,7 @@ mod tests {
 /// The implementation uses a simple Lloyd k-means per subspace.
 /// Centroids are stored and used at runtime. For production you would
 /// persist the trained PQ alongside the collection.
+#[derive(Clone, Debug)]
 pub struct ProductQuantizer {
     /// Number of subquantizers (subspaces). dim must be divisible by m.
     pub m: usize,
@@ -351,6 +352,37 @@ fn mean_vector(vectors: &[Vec<f32>], dim: usize) -> Vec<f32> {
         *x /= n;
     }
     mean
+}
+
+/// Default trained Product Quantizer for storage (Phase 8 polish).
+/// Uses M=8 subquantizers, K=256 centroids on 384-dim vectors.
+/// Trained on synthetic normalized data at first use.
+/// This enables much smaller storage (8 bytes per vector vs 384).
+pub fn default_product_quantizer() -> ProductQuantizer {
+    static DEFAULT_PQ: std::sync::OnceLock<ProductQuantizer> = std::sync::OnceLock::new();
+    DEFAULT_PQ.get_or_init(|| {
+        let dim = 384;
+        let m = 8;
+        let k = 256;
+        let mut samples = Vec::with_capacity(1024);
+        let mut seed: u64 = 0x1234567890abcdef;
+        for _ in 0..1024 {
+            let mut v = vec![0.0f32; dim];
+            for x in &mut v {
+                seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+                *x = ((seed >> 32) as f32 / u32::MAX as f32) * 2.0 - 1.0;
+            }
+            // L2 normalize
+            let norm: f32 = v.iter().map(|&x| x * x).sum::<f32>().sqrt();
+            if norm > 1e-6 {
+                for x in &mut v {
+                    *x /= norm;
+                }
+            }
+            samples.push(v);
+        }
+        ProductQuantizer::train(&samples, m, k)
+    }).clone()
 }
 
 // PQ test moved to avoid duplicate mod

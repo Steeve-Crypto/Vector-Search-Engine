@@ -27,7 +27,7 @@ pub use embedder::{download_model_if_needed, embed, embed_batch, Embedder, Embed
 // Re-export HNSW types so higher layers (and tests) can use them directly if needed
 pub use collection::{Collections, ShardedCollections};
 pub use hnsw_index::{HnswConfig, HnswIndex, HnswStats};
-pub use quantization::{dequantize, quantize, quantization_error, QuantizedVector, ProductQuantizer};
+pub use quantization::{dequantize, quantize, quantization_error, QuantizedVector, ProductQuantizer, default_product_quantizer};
 // Real k-means PQ (Phase 8): ProductQuantizer::train(samples, m, k) for production-grade compression.
 
 /// Internal struct for sled storage with quantized embedding (Phase 6 integration).
@@ -140,6 +140,8 @@ pub struct VectorEngine {
     hnsw: hnsw_index::HnswIndex,
     /// Optional sled DB for persistence. When present, ingests are durably written.
     db: Option<sled::Db>,
+    /// Trained PQ for storage compression (Phase 8 polish). Uses default trained instance.
+    pq: Option<ProductQuantizer>,
 }
 
 impl VectorEngine {
@@ -156,6 +158,7 @@ impl VectorEngine {
             docs: HashMap::new(),
             hnsw: hnsw_index::HnswIndex::new(hnsw_config),
             db: None,
+            pq: Some(default_product_quantizer()),
         }
     }
 
@@ -172,8 +175,20 @@ impl VectorEngine {
 
         let mut engine = Self::new(config);
         engine.db = Some(db.clone());
+        engine.pq = Some(default_product_quantizer());
 
-        // Rebuild docs + HNSW from sled
+        // Phase 8 polish: prefer loading HNSW graph dump if available for fast startup
+        let hnsw_config = hnsw_index::HnswConfig::default();
+        let mut hnsw_loaded_from_dump = false;
+        if let Ok(loaded_hnsw) = hnsw_index::HnswIndex::load(data_dir, "hnsw", hnsw_config) {
+            if loaded_hnsw.len() > 0 {
+                engine.hnsw = loaded_hnsw;
+                hnsw_loaded_from_dump = true;
+                info!("HNSW graph loaded from dump (skipping rebuild)");
+            }
+        }
+
+        // Load docs from sled (always). Only insert to HNSW if not loaded from dump.
         let mut raw_count = 0usize;
         let mut loaded_count = 0usize;
         for res in db.iter() {
@@ -182,7 +197,14 @@ impl VectorEngine {
             match bincode::deserialize::<StoredDocument>(&val) {
                 Ok(stored) => {
                     let id = stored.id;
-                    let emb = dequantize(&stored.embedding);
+                    // Phase 8: dequant using PQ if the stored bytes look like PQ codes (short), else scalar
+                    let emb = if stored.embedding.len() == EMBED_DIM {
+                        dequantize(&stored.embedding)
+                    } else if let Some(pq) = &engine.pq {
+                        pq.dequantize(&stored.embedding)
+                    } else {
+                        dequantize(&stored.embedding)
+                    };
                     let metadata: Metadata = serde_json::from_str(&stored.metadata).unwrap_or(serde_json::Value::Null);
                     let doc = Document {
                         id,
@@ -191,7 +213,9 @@ impl VectorEngine {
                         metadata,
                     };
                     engine.docs.insert(id, doc);
-                    let _ = engine.hnsw.insert(&emb, id);
+                    if !hnsw_loaded_from_dump {
+                        let _ = engine.hnsw.insert(&emb, id);
+                    }
                     loaded_count += 1;
                 }
                 Err(e) => {
@@ -204,7 +228,8 @@ impl VectorEngine {
             info!(loaded = loaded_count, "successfully loaded documents from sled");
         }
 
-        info!(path = %db_path.display(), count = engine.docs.len(), "loaded persistent engine from sled (HNSW rebuilt)");
+        let rebuild_note = if hnsw_loaded_from_dump { " (HNSW from dump)" } else { " (HNSW rebuilt)" };
+        info!(path = %db_path.display(), count = engine.docs.len(), "loaded persistent engine from sled{}", rebuild_note);
         Ok(engine)
     }
 
@@ -225,10 +250,18 @@ impl VectorEngine {
         let id = doc.id;
 
         // Persist to sled first (if enabled)
-        // Phase 6: integrate quant into sled storage by default
+        // Phase 8: use trained PQ by default for much better compression (8 bytes vs 384)
         if let Some(db) = &self.db {
             let key = id.as_bytes();
-            let qemb = quantize(&embedding);
+            let qemb = if let Some(pq) = &self.pq {
+                if pq.is_trained() {
+                    pq.quantize(&embedding)
+                } else {
+                    quantize(&embedding)
+                }
+            } else {
+                quantize(&embedding)
+            };
             let stored = StoredDocument {
                 id,
                 text: doc.text.clone(),
@@ -240,7 +273,7 @@ impl VectorEngine {
             db.insert(key, val)
                 .map_err(|e| VectorError::Internal(e.to_string()))?;
             let _ = db.flush();
-            info!(db_len_after_write = db.len(), "wrote document to sled (quantized by default)");
+            info!(db_len_after_write = db.len(), "wrote document to sled (using PQ by default)");
         }
 
         self.docs.insert(id, doc);
@@ -384,6 +417,18 @@ impl VectorEngine {
             hnsw_ef_construction: hstats.ef_construction,
             hnsw_default_ef_search: hstats.default_ef_search,
         }
+    }
+
+    /// Dump the current HNSW graph for fast future restarts (Phase 8 integration).
+    /// Call this after significant ingests for snapshotting. Labels sidecar is written too.
+    pub fn save_hnsw(&self, dir: &Path, basename: &str) -> hnsw_index::Result<()> {
+        self.hnsw.dump(dir, basename)
+    }
+
+    /// Train (or retrain) the internal PQ on representative sample embeddings.
+    /// This can improve compression quality for your specific data distribution.
+    pub fn train_pq(&mut self, samples: &[Vec<f32>]) {
+        self.pq = Some(ProductQuantizer::train(samples, 8, 256));
     }
 
     /// Get a document by ID (useful for debugging).

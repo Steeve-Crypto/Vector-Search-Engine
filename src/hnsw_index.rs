@@ -15,6 +15,7 @@
 
 use crate::EMBED_DIM;
 use anndists::dist::DistDot;
+use hnsw_rs::hnswio::HnswIo;
 use hnsw_rs::prelude::*;
 use std::collections::HashMap;
 use std::path::Path;
@@ -230,11 +231,6 @@ impl HnswIndex {
     /// Load HNSW preferring hnswio dump if available for speed (graph structure), falling back to rebuild.
     /// Labels must match the dump order. For full durability use sled docs + rebuild (current default).
     pub fn load(dir: &Path, basename: &str, config: HnswConfig) -> Result<Self> {
-        // Note: full load_hnsw_with_dist has lifetime ties to HnswIo in this version.
-        // We prefer rebuild for reliability (fast enough), but keep dump for snapshots.
-        // Future: can leak reloader or use mmap-aware holder for owned graph load.
-        warn!("HNSW load prefers rebuild from docs for now (dump available via .dump())");
-        // Rebuild empty and let caller populate via from_docs or inserts
         let mut hnsw = HnswIndex::new(config);
         let labels_path = dir.join(format!("{}.labels.bin", basename));
         if labels_path.exists() {
@@ -246,7 +242,26 @@ impl HnswIndex {
             for (i, &u) in labels.iter().enumerate() {
                 hnsw.id_to_label.insert(u, i);
             }
-            info!("Labels loaded from dump sidecar; populate embeddings via engine");
+            info!("Labels loaded from dump sidecar");
+        }
+
+        // Phase 8 polish: attempt to load the actual HNSW graph for fast startup
+        let data_path = dir.join(format!("{}.hnsw.data", basename));
+        let graph_path = dir.join(format!("{}.hnsw.graph", basename));
+        if data_path.exists() && graph_path.exists() {
+            // Leak the HnswIo to satisfy 'static lifetime requirement of the loaded HNSW (as noted in crate)
+            let reloader = Box::leak(Box::new(HnswIo::new(dir, basename)));
+            match reloader.load_hnsw::<f32, DistDot>() {
+                Ok(loaded_hnsw) => {
+                    hnsw.hnsw = loaded_hnsw;
+                    info!("HNSW graph loaded from dump (fast path)");
+                }
+                Err(e) => {
+                    warn!(error = %e, "Failed to load HNSW graph from dump, will rebuild from embeddings if needed");
+                }
+            }
+        } else {
+            debug!("No complete HNSW dump files found; HNSW will be populated from docs");
         }
         Ok(hnsw)
     }
