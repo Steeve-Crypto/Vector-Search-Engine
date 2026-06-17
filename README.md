@@ -202,7 +202,12 @@ Usage:
 - Run vector engine + your local LLM (Ollama recommended).
 - Point your private chat UI (Open WebUI, etc.) OpenAI base URL to `http://localhost:8080`.
 - Use collections for different knowledge bases.
-- Env: `LLM_BASE_URL=http://your-llm:11434/v1` , `RAG_TOP_K=5` (future), collection via request `collection` field.
+- Env: `LLM_BASE_URL=http://your-llm:11434/v1` , collection via request `collection` field.
+- Config: `RAG_SYSTEM_TEMPLATE`, `RAG_CONTEXT_TEMPLATE` for prompt injection.
+- Streaming: set "stream": true in chat request (SSE proxied).
+- Retrieval only: POST /v1/retrieve for custom frameworks.
+- Standalone binary: cargo run --bin rag_adapter (separate process proxy).
+- Python example: examples/rag_adapter.py (uses REST for retrieval + LLM).
 
 This turns the vector engine into a complete private RAG backend without exposing data.
 

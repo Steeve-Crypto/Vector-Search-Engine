@@ -227,3 +227,21 @@ These ensure the project is robust, observable, and production-viable. Prioritiz
 - Testing & evaluation: property-based tests for PQ roundtrips and recall. Expanded `eval_recall` with SIFT-like datasets or synthetic clusters. CI matrix for different doc scales and PQ configs.
 - Ops & docs: full ops runbook (scaling shards, backup sled + dumps, monitoring). Update README with Phase 9 features, add more ADRs for persistence and sharding choices.
 - Exit criteria: functional sharded setup (local), reliable HNSW dump/load as default, PQ as storage default with public benchmarks, working gRPC client example, exposed search params.
+
+### Phase 10: RAG Adapter and Integrations
+- Streaming support for /v1/chat/completions (full SSE proxy to LLM backend while doing retrieval).
+- Configurable context injection and prompt templates (env vars for system/context formats).
+- Dedicated standalone RAG adapter binary (minimal proxy for separation of concerns).
+- Language adapters and examples: Python (requests + openai lib), notes for JS/TS, Go etc.
+- Retrieval-only helpers: dedicated /v1/retrieve endpoint, simple SDK helpers in lib for direct use in LangChain/LlamaIndex/Haystack etc.
+- Enhanced RAG: citation support, re-ranking stub, configurable top-k per request.
+- Exit criteria: streaming chat works with private LLM, configurable templates, working standalone bin and Python example, retrieval endpoint usable by frameworks.
+
+### Phase 11: Full Production Ecosystem
+- OpenAPI spec generation and Swagger UI.
+- Official client libraries (Rust crate features, PyPI package).
+- Integration examples: full RAG with Ollama + vector, LangChain retriever.
+- Advanced security: mTLS everywhere, per-collection rate limits and keys, audit logging.
+- Monitoring for RAG: retrieval latency, context relevance metrics (via OTEL).
+- Multi-modal future prep: support for image embeddings if extended.
+- Exit criteria: complete docs and examples for private chat app integration, clients published or stubbed, all Phase 9/10 polish complete.

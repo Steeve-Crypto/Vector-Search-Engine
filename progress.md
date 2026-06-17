@@ -21,7 +21,8 @@
 | 6     | Advanced (future)             | ✅ Done | Hybrid; metadata filter opt; scalar + PQ quant; collections/multi-index + sharding; gRPC stub + OpenAI; UI+auth+tenancy; quant in sled default; benchmarks w/ quant | All Phase 6 items complete. |
 | 7     | Observability, Testing, CI/CD & Deployment | ✅ Done | Enhanced Prometheus (HNSW gauges + quant_error histograms per collection), OTEL, full CI (test+clippy+docker+actual benches for regression + load-test job using scripts/load_test.sh), k8s/helm, docker observability stacks | Phase 7 complete. |
 | 8     | Advanced PQ + gRPC + UI Viz | ✅ Done | Real k-means PQ (train/quant/dequant + sled default), tonic gRPC (feature-gated), Chart.js score viz + enhanced UI, HNSW dump/load integration | All items complete. |
-| 9     | Scalability, Advanced Persistence, and Ecosystem | ✅ Done | All items: sharded, HNSW primary, ef/batch, PQ default + bench, concurrency notes, gRPC client + RAG, security notes, property tests, ops runbook/README | All in shown order, short commits. |
+| 9     | Scalability, Advanced Persistence, and Ecosystem | ✅ Done | All items including initial RAG | Done |
+| 10    | RAG Adapter and Integrations | 🟡 In Progress | Streaming, configurable templates, standalone binary, Python example, retrieval helpers | Implementing per user request |
 
 ## Detailed Progress Within Phase 1 (Core Engine)
 
