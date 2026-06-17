@@ -38,7 +38,7 @@ ndarray = "0.15"
 openssl = { version = "0.10", features = ["vendored"] }
 
 # Lightweight HTTP client for downloading the embedding model (rustls-based, no native-tls conflict)
-ureq = "3"
+ureq = { version = "3", features = ["json"] }
 
 # Serialization for sled documents and HNSW label mappings
 bincode = "1.3"

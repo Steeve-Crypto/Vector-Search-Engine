@@ -25,6 +25,7 @@ use axum::{
     routing::{get, post},
     Router,
 };
+use serde_json::Value;
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::sync::Arc;
@@ -678,6 +679,31 @@ pub struct OpenAIUsage {
     pub total_tokens: usize,
 }
 
+// Phase 9: RAG Adapter for Private AI chat apps
+// OpenAI-compatible /v1/chat/completions that performs retrieval-augmented generation.
+// - Uses the local vector engine for context retrieval (embeddings + search).
+// - Augments the conversation with retrieved documents.
+// - Forwards to a private LLM backend (default: Ollama at http://localhost:11434/v1).
+// This allows any OpenAI-compatible private chat UI (Open WebUI, etc.) to connect to this server
+// for both embeddings (/v1/embeddings) and RAG chat (/v1/chat/completions) using a single base URL.
+
+#[derive(Debug, Deserialize)]
+pub struct OpenAIChatRequest {
+    pub model: String,
+    pub messages: Vec<OpenAIChatMessage>,
+    #[serde(default)]
+    pub stream: bool,
+    // Optional: specify collection for retrieval
+    #[serde(default)]
+    pub collection: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct OpenAIChatMessage {
+    pub role: String,
+    pub content: String,
+}
+
 pub async fn openai_embeddings(
     State(_state): State<AppState>,
     Json(payload): Json<OpenAIEmbedRequest>,
@@ -718,6 +744,103 @@ pub async fn openai_embeddings(
             total_tokens,
         },
     }))
+}
+
+// RAG Adapter: OpenAI-compatible chat with retrieval
+pub async fn openai_chat_completions(
+    State(state): State<AppState>,
+    Json(payload): Json<OpenAIChatRequest>,
+) -> Result<Json<Value>, ApiError> {
+    if payload.messages.is_empty() {
+        return Err(ApiError::BadRequest("messages cannot be empty".into()));
+    }
+
+    // Extract query from last user message for retrieval
+    let query = payload
+        .messages
+        .iter()
+        .rev()
+        .find(|m| m.role == "user")
+        .map(|m| m.content.trim().to_string())
+        .unwrap_or_default();
+
+    let collection = payload
+        .collection
+        .unwrap_or_else(|| "default".to_string());
+
+    // Retrieve context using the vector engine
+    let mut cols = state.collections.lock().await;
+    let engine = cols.get_or_create(&collection, EngineConfig::default())?;
+
+    let mut context_docs = vec![];
+    if !query.is_empty() {
+        // Use semantic search (can be hybrid if desired)
+        let results = if query.split_whitespace().count() > 3 {
+            // heuristic: use hybrid for longer queries
+            engine.hybrid_search(&query, 5)?
+        } else {
+            let emb = embed(&query)?;
+            engine.search(&emb, 5)?
+        };
+        for r in results {
+            context_docs.push(format!("- {}", r.text));
+        }
+    }
+
+    // Build augmented messages with context
+    let mut augmented = payload.messages.clone();
+    if !context_docs.is_empty() {
+        let context_text = context_docs.join("\n");
+        let system_context = format!(
+            "You are a helpful assistant with access to the following private knowledge base. \
+Use the context below to answer accurately. If the answer is not in the context, say so.\n\nContext:\n{}",
+            context_text
+        );
+        // Prepend or update system message
+        if let Some(first) = augmented.first_mut() {
+            if first.role == "system" {
+                first.content = format!("{}\n\n{}", system_context, first.content);
+            } else {
+                augmented.insert(0, OpenAIChatMessage {
+                    role: "system".to_string(),
+                    content: system_context,
+                });
+            }
+        } else {
+            augmented.insert(0, OpenAIChatMessage {
+                role: "system".to_string(),
+                content: system_context,
+            });
+        }
+    }
+
+    // Forward to private LLM backend (configurable, e.g. Ollama)
+    let llm_base = std::env::var("LLM_BASE_URL")
+        .unwrap_or_else(|_| "http://localhost:11434/v1".to_string());
+    let url = format!("{}/chat/completions", llm_base.trim_end_matches('/'));
+
+    let forward_body = serde_json::json!({
+        "model": payload.model,
+        "messages": augmented,
+        "stream": payload.stream,
+    });
+
+    let mut llm_resp = ureq::post(&url)
+        .header("Content-Type", "application/json")
+        .send_json(&forward_body)
+        .map_err(|e| ApiError::Internal(format!("LLM backend error: {}", e)))?;
+
+    if llm_resp.status() != 200 {
+        let err_text = llm_resp.body_mut().read_to_string().unwrap_or_default();
+        return Err(ApiError::Internal(format!("LLM backend returned {}: {}", llm_resp.status(), err_text)));
+    }
+
+    let body: Value = llm_resp
+        .body_mut()
+        .read_json()
+        .map_err(|e| ApiError::Internal(format!("Failed to parse LLM response: {}", e)))?;
+
+    Ok(Json(body))
 }
 
 // ============================================================================
@@ -832,6 +955,7 @@ pub fn create_router(collections: Collections) -> Router {
         .route("/health", get(health_handler))
         .route("/metrics", get(metrics_handler))
         .route("/v1/embeddings", post(openai_embeddings))  // Phase 6 OpenAI compat
+        .route("/v1/chat/completions", post(openai_chat_completions))  // Phase 9 RAG Adapter for private AI chat apps
         // Phase 4: Simple HTMX demo UI
         .nest_service("/ui", ServeDir::new("static").precompressed_gzip())
         // Redirect root to the nice UI
