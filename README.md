@@ -184,6 +184,28 @@ flowchart TD
 See [useCase.md](./useCase.md) for detailed real-world use cases and cost analysis.  
 See `plan.md` for the phased development plan (Phase 9: Scalability etc) and `progress.md` for status.
 
+## RAG Adapter for Private AI Chat Apps (Phase 9)
+
+The server now includes a built-in RAG adapter:
+
+- `/v1/embeddings` - local embeddings (already OpenAI compatible)
+- `/v1/chat/completions` - RAG-enabled chat completions (OpenAI compatible)
+
+**How it works as adapter:**
+1. Chat app sends chat request to this server.
+2. Adapter extracts the query, retrieves top relevant docs from the vector engine (using your collections).
+3. Augments the prompt with retrieved private context.
+4. Forwards the augmented request to your private LLM backend (Ollama, llama.cpp server, etc. via `LLM_BASE_URL` env, default http://localhost:11434/v1).
+5. Returns the LLM response transparently.
+
+Usage:
+- Run vector engine + your local LLM (Ollama recommended).
+- Point your private chat UI (Open WebUI, etc.) OpenAI base URL to `http://localhost:8080`.
+- Use collections for different knowledge bases.
+- Env: `LLM_BASE_URL=http://your-llm:11434/v1` , `RAG_TOP_K=5` (future), collection via request `collection` field.
+
+This turns the vector engine into a complete private RAG backend without exposing data.
+
 ## Phase 9 Ops Runbook (summary)
 - Scaling: use ShardedCollections or multiple instances with gRPC.
 - Backup: copy data/ dir + periodic `save_hnsw` dumps.
