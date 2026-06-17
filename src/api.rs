@@ -8,7 +8,7 @@
 //! - POST /search      : semantic search
 //! - GET  /stats       : engine statistics
 //! - GET  /health      : simple health check
-//! - GET  /metrics     : Prometheus metrics (basic counters + latency histogram)
+//! - GET  /metrics     : Prometheus-compatible metrics (counters/gauges/histograms, no prometheus crate)
 //!
 //! Features:
 //! - JSON request/response models
@@ -25,12 +25,11 @@ use axum::{
     routing::{get, post},
     Router,
 };
-use prometheus::{Encoder, TextEncoder};
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::sync::Arc;
 use std::sync::LazyLock;
-use tokio::sync::Mutex;
+use tokio::sync::Mutex as TokioMutex;
 use tower_http::{cors::CorsLayer, limit::RequestBodyLimitLayer, services::ServeDir, trace::TraceLayer};
 use tower_governor::{governor::GovernorConfigBuilder, key_extractor::SmartIpKeyExtractor, GovernorLayer};
 use sled;
@@ -44,7 +43,7 @@ use crate::{collection::Collections, quantization::quantization_error, EngineCon
 
 #[derive(Clone)]
 pub struct AppState {
-    pub collections: Arc<Mutex<Collections>>,
+    pub collections: Arc<TokioMutex<Collections>>,
 }
 
 // ============================================================================
@@ -167,24 +166,22 @@ pub async fn ingest_handler(
         return Err(ApiError::BadRequest("text cannot be empty".into()));
     }
 
-    let timer = SEARCH_LATENCY.with_label_values(&[&payload.collection, "false"]).start_timer();
+    let _timer = LatencyTimer::new(&payload.collection, "false");
     let embedding = embed(&payload.text)?;
     let metadata = payload.metadata.unwrap_or(serde_json::Value::Null);
 
     // Phase 7: observe quantization error for this vector
     let qerr = quantization_error(&embedding);
-    QUANT_ERROR_HISTOGRAM
-        .with_label_values(&[&payload.collection])
-        .observe(qerr);
+    observe_quant_error(&payload.collection, qerr);
 
     let mut cols = state.collections.lock().await;
     let engine = cols.get_or_create(&payload.collection, EngineConfig::default())?;
     let id = engine.ingest(payload.text, embedding, metadata)?;
-    drop(timer);
+    // timer dropped here (records latency)
 
     info!(document_id = %id, collection = %payload.collection, "ingested via API");
-    INGEST_COUNTER.with_label_values(&[&payload.collection]).inc();
-    DOCS_GAUGE.with_label_values(&[&payload.collection]).set(engine.len() as i64);
+    inc_ingest(&payload.collection);
+    set_docs_gauge(&payload.collection, engine.len() as i64);
 
     Ok(Json(serde_json::json!({
         "id": id,
@@ -213,17 +210,15 @@ pub async fn batch_ingest_handler(
 
         // Phase 7: per-item quant error + metrics
         let qerr = quantization_error(&embedding);
-        QUANT_ERROR_HISTOGRAM
-            .with_label_values(&[&doc.collection])
-            .observe(qerr);
+        observe_quant_error(&doc.collection, qerr);
 
         let mut cols = state.collections.lock().await;
         let engine = cols.get_or_create(&doc.collection, EngineConfig::default())?;
         let id = engine.ingest(doc.text, embedding, metadata)?;
         ids.push(id);
         // update per-collection gauge after each (small batches ok)
-        DOCS_GAUGE.with_label_values(&[&doc.collection]).set(engine.len() as i64);
-        INGEST_COUNTER.with_label_values(&[&doc.collection]).inc();
+        set_docs_gauge(&doc.collection, engine.len() as i64);
+        inc_ingest(&doc.collection);
     }
 
     info!(count = ids.len(), "batch ingested via API");
@@ -246,7 +241,7 @@ pub async fn search_handler(
 
     let limit = payload.limit.clamp(1, 1000);
 
-    let timer = SEARCH_LATENCY.with_label_values(&[&payload.collection, &payload.hybrid.to_string()]).start_timer();
+    let _timer = LatencyTimer::new(&payload.collection, &payload.hybrid.to_string());
     let mut cols = state.collections.lock().await;
     let engine = cols.get_or_create(&payload.collection, EngineConfig::default())?;
 
@@ -263,17 +258,18 @@ pub async fn search_handler(
         let query_emb = embed(&payload.query)?;
         engine.search(&query_emb, fetch_k)?
     };
-    drop(timer); // ends timer
-    SEARCH_COUNTER.with_label_values(&[&payload.collection, &payload.hybrid.to_string()]).inc();
+    // timer drops here and records latency
+
+    inc_search(&payload.collection, &payload.hybrid.to_string());
     let n = engine.len() as i64;
-    DOCS_GAUGE.with_label_values(&[&payload.collection]).set(n);
+    set_docs_gauge(&payload.collection, n);
 
     // Phase 7: keep HNSW gauges fresh on search path too
     let st = engine.stats();
-    HNSW_NUM_VECTORS_GAUGE.with_label_values(&[&payload.collection]).set(st.num_documents as i64);
-    HNSW_MAX_CONNECTIONS_GAUGE.with_label_values(&[&payload.collection]).set(st.hnsw_max_nb_connection as i64);
-    HNSW_EF_CONSTRUCTION_GAUGE.with_label_values(&[&payload.collection]).set(st.hnsw_ef_construction as i64);
-    HNSW_EF_SEARCH_GAUGE.with_label_values(&[&payload.collection]).set(st.hnsw_default_ef_search as i64);
+    set_hnsw_gauge("num_vectors", &payload.collection, st.num_documents as i64);
+    set_hnsw_gauge("max_connections", &payload.collection, st.hnsw_max_nb_connection as i64);
+    set_hnsw_gauge("ef_construction", &payload.collection, st.hnsw_ef_construction as i64);
+    set_hnsw_gauge("ef_search", &payload.collection, st.hnsw_default_ef_search as i64);
 
     if let Some(min) = payload.min_score {
         results.retain(|r| r.score >= min);
@@ -307,13 +303,13 @@ pub async fn stats_handler(
     let stats = engine.stats();
     let n = engine.len() as i64;
 
-    DOCS_GAUGE.with_label_values(&[&coll]).set(n);
+    set_docs_gauge(&coll, n);
 
     // Phase 7: HNSW-specific gauges (per collection)
-    HNSW_NUM_VECTORS_GAUGE.with_label_values(&[&coll]).set(stats.num_documents as i64);
-    HNSW_MAX_CONNECTIONS_GAUGE.with_label_values(&[&coll]).set(stats.hnsw_max_nb_connection as i64);
-    HNSW_EF_CONSTRUCTION_GAUGE.with_label_values(&[&coll]).set(stats.hnsw_ef_construction as i64);
-    HNSW_EF_SEARCH_GAUGE.with_label_values(&[&coll]).set(stats.hnsw_default_ef_search as i64);
+    set_hnsw_gauge("num_vectors", &coll, stats.num_documents as i64);
+    set_hnsw_gauge("max_connections", &coll, stats.hnsw_max_nb_connection as i64);
+    set_hnsw_gauge("ef_construction", &coll, stats.hnsw_ef_construction as i64);
+    set_hnsw_gauge("ef_search", &coll, stats.hnsw_default_ef_search as i64);
 
     Json(StatsResponse {
         num_documents: stats.num_documents,
@@ -328,109 +324,267 @@ pub async fn health_handler() -> Json<HealthResponse> {
     })
 }
 
-// Advanced Prometheus metrics for Phase 7 observability (labeled by collection where applicable)
-static INGEST_COUNTER: std::sync::LazyLock<prometheus::IntCounterVec> =
-    std::sync::LazyLock::new(|| {
-        prometheus::register_int_counter_vec!(
-            "vector_ingest_total",
-            "Total documents ingested",
-            &["collection"]
-        )
-        .expect("failed to register ingest counter")
-    });
+// Lightweight metrics implementation (no `prometheus` crate).
+// We maintain simple in-memory counters/gauges/histograms and render a
+// Prometheus text exposition format on GET /metrics. This keeps full
+// compatibility with Prometheus, VictoriaMetrics, Perses, Grafana, etc.
+// while avoiding any extra dependency.
+//
+// All metrics are labeled by collection (and hybrid for searches).
+// Cardinality is low (number of collections is small).
 
-static SEARCH_COUNTER: std::sync::LazyLock<prometheus::IntCounterVec> =
-    std::sync::LazyLock::new(|| {
-        prometheus::register_int_counter_vec!(
-            "vector_search_total",
-            "Total search requests",
-            &["collection", "hybrid"]
-        )
-        .expect("failed to register search counter")
-    });
+use std::collections::HashMap;
+use std::time::Instant;
 
-static SEARCH_LATENCY: std::sync::LazyLock<prometheus::HistogramVec> =
-    std::sync::LazyLock::new(|| {
-        prometheus::register_histogram_vec!(
-            "vector_search_latency_seconds",
-            "Search latency in seconds",
-            &["collection", "hybrid"]
-        )
-        .expect("failed to register latency histogram")
-    });
+#[derive(Default, Clone)]
+struct HistogramData {
+    // buckets: (le_upper_bound, cumulative_count)
+    buckets: Vec<(f64, u64)>,
+    sum: f64,
+    count: u64,
+}
 
-static DOCS_GAUGE: std::sync::LazyLock<prometheus::IntGaugeVec> =
-    std::sync::LazyLock::new(|| {
-        prometheus::register_int_gauge_vec!(
-            "vector_docs_total",
-            "Current number of documents in collection",
-            &["collection"]
-        )
-        .expect("failed to register docs gauge")
-    });
+static INGEST_COUNTER: LazyLock<std::sync::Mutex<HashMap<String, u64>>> =
+    LazyLock::new(|| std::sync::Mutex::new(HashMap::new()));
 
-// Phase 7: HNSW-specific gauges
-static HNSW_NUM_VECTORS_GAUGE: std::sync::LazyLock<prometheus::IntGaugeVec> =
-    std::sync::LazyLock::new(|| {
-        prometheus::register_int_gauge_vec!(
-            "hnsw_num_vectors",
-            "Number of vectors in HNSW index per collection",
-            &["collection"]
-        )
-        .expect("failed to register hnsw vectors gauge")
-    });
+static SEARCH_COUNTER: LazyLock<std::sync::Mutex<HashMap<(String, String), u64>>> =
+    LazyLock::new(|| std::sync::Mutex::new(HashMap::new()));
 
-static HNSW_MAX_CONNECTIONS_GAUGE: std::sync::LazyLock<prometheus::IntGaugeVec> =
-    std::sync::LazyLock::new(|| {
-        prometheus::register_int_gauge_vec!(
-            "hnsw_max_connections",
-            "Max connections (M) in HNSW per collection",
-            &["collection"]
-        )
-        .expect("failed to register hnsw M gauge")
-    });
+static DOCS_GAUGE: LazyLock<std::sync::Mutex<HashMap<String, i64>>> =
+    LazyLock::new(|| std::sync::Mutex::new(HashMap::new()));
 
-static HNSW_EF_CONSTRUCTION_GAUGE: std::sync::LazyLock<prometheus::IntGaugeVec> =
-    std::sync::LazyLock::new(|| {
-        prometheus::register_int_gauge_vec!(
-            "hnsw_ef_construction",
-            "efConstruction parameter in HNSW per collection",
-            &["collection"]
-        )
-        .expect("failed to register hnsw ef_construction gauge")
-    });
+static HNSW_NUM_VECTORS_GAUGE: LazyLock<std::sync::Mutex<HashMap<String, i64>>> =
+    LazyLock::new(|| std::sync::Mutex::new(HashMap::new()));
+static HNSW_MAX_CONNECTIONS_GAUGE: LazyLock<std::sync::Mutex<HashMap<String, i64>>> =
+    LazyLock::new(|| std::sync::Mutex::new(HashMap::new()));
+static HNSW_EF_CONSTRUCTION_GAUGE: LazyLock<std::sync::Mutex<HashMap<String, i64>>> =
+    LazyLock::new(|| std::sync::Mutex::new(HashMap::new()));
+static HNSW_EF_SEARCH_GAUGE: LazyLock<std::sync::Mutex<HashMap<String, i64>>> =
+    LazyLock::new(|| std::sync::Mutex::new(HashMap::new()));
 
-static HNSW_EF_SEARCH_GAUGE: std::sync::LazyLock<prometheus::IntGaugeVec> =
-    std::sync::LazyLock::new(|| {
-        prometheus::register_int_gauge_vec!(
-            "hnsw_ef_search",
-            "Default efSearch parameter in HNSW per collection",
-            &["collection"]
-        )
-        .expect("failed to register hnsw ef_search gauge")
-    });
+static QUANT_ERROR_HIST: LazyLock<std::sync::Mutex<HashMap<String, HistogramData>>> =
+    LazyLock::new(|| std::sync::Mutex::new(HashMap::new()));
 
-// Phase 7: Quant error histogram (per collection)
-static QUANT_ERROR_HISTOGRAM: std::sync::LazyLock<prometheus::HistogramVec> =
-    std::sync::LazyLock::new(|| {
-        prometheus::register_histogram_vec!(
-            "quant_error",
-            "Quantization error (RMS) histogram",
-            &["collection"]
-        )
-        .expect("failed to register quant error histogram")
-    });
+static SEARCH_LATENCY_HIST: LazyLock<std::sync::Mutex<HashMap<(String, String), HistogramData>>> =
+    LazyLock::new(|| std::sync::Mutex::new(HashMap::new()));
+
+// Reasonable buckets for our data (quant error is small; latency in seconds).
+fn quant_error_buckets() -> &'static [f64] {
+    &[0.0005, 0.001, 0.003, 0.005, 0.01, 0.05, f64::INFINITY]
+}
+fn search_latency_buckets() -> &'static [f64] {
+    &[0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 1.0, f64::INFINITY]
+}
+
+fn inc_ingest(collection: &str) {
+    let mut m = INGEST_COUNTER.lock().unwrap();
+    *m.entry(collection.to_string()).or_insert(0) += 1;
+}
+
+fn inc_search(collection: &str, hybrid: &str) {
+    let mut m = SEARCH_COUNTER.lock().unwrap();
+    *m.entry((collection.to_string(), hybrid.to_string())).or_insert(0) += 1;
+}
+
+fn set_docs_gauge(collection: &str, n: i64) {
+    let mut m = DOCS_GAUGE.lock().unwrap();
+    m.insert(collection.to_string(), n);
+}
+
+fn set_hnsw_gauge(name: &str, collection: &str, v: i64) {
+    let map: &LazyLock<std::sync::Mutex<HashMap<String, i64>>> = match name {
+        "num_vectors" => &HNSW_NUM_VECTORS_GAUGE,
+        "max_connections" => &HNSW_MAX_CONNECTIONS_GAUGE,
+        "ef_construction" => &HNSW_EF_CONSTRUCTION_GAUGE,
+        "ef_search" => &HNSW_EF_SEARCH_GAUGE,
+        _ => return,
+    };
+    let mut m = map.lock().unwrap();
+    m.insert(collection.to_string(), v);
+}
+
+fn observe_quant_error(collection: &str, value: f64) {
+    let mut m = QUANT_ERROR_HIST.lock().unwrap();
+    let entry = m.entry(collection.to_string()).or_default();
+    entry.count += 1;
+    entry.sum += value;
+
+    // Ensure we have slots for each bucket (first time)
+    if entry.buckets.is_empty() {
+        entry.buckets = quant_error_buckets().iter().map(|&le| (le, 0)).collect();
+    }
+
+    for (le, count) in &mut entry.buckets {
+        if value <= *le {
+            *count += 1;
+        }
+    }
+}
+
+fn record_search_latency(collection: &str, hybrid: &str, seconds: f64) {
+    let mut m = SEARCH_LATENCY_HIST.lock().unwrap();
+    let key = (collection.to_string(), hybrid.to_string());
+    let entry = m.entry(key).or_default();
+    entry.count += 1;
+    entry.sum += seconds;
+
+    if entry.buckets.is_empty() {
+        entry.buckets = search_latency_buckets().iter().map(|&le| (le, 0)).collect();
+    }
+    for (le, count) in &mut entry.buckets {
+        if seconds <= *le {
+            *count += 1;
+        }
+    }
+}
+
+/// Simple RAII timer for latency (replaces the old prometheus HistogramTimer).
+struct LatencyTimer {
+    collection: String,
+    hybrid: String,
+    start: Instant,
+}
+
+impl LatencyTimer {
+    fn new(collection: impl Into<String>, hybrid: impl Into<String>) -> Self {
+        Self {
+            collection: collection.into(),
+            hybrid: hybrid.into(),
+            start: Instant::now(),
+        }
+    }
+}
+
+impl Drop for LatencyTimer {
+    fn drop(&mut self) {
+        let secs = self.start.elapsed().as_secs_f64();
+        record_search_latency(&self.collection, &self.hybrid, secs);
+    }
+}
 
 pub async fn metrics_handler() -> impl IntoResponse {
-    let encoder = TextEncoder::new();
-    let metric_families = prometheus::gather();
-    let mut buffer = Vec::new();
-    encoder.encode(&metric_families, &mut buffer).unwrap();
+    // Build Prometheus text format manually (no crate).
+    let mut out = String::with_capacity(2048);
+
+    // --- Counters ---
+    {
+        let m = INGEST_COUNTER.lock().unwrap();
+        out.push_str("# HELP vector_ingest_total Total documents ingested\n");
+        out.push_str("# TYPE vector_ingest_total counter\n");
+        for (coll, val) in m.iter() {
+            out.push_str(&format!(
+                "vector_ingest_total{{collection=\"{}\"}} {}\n",
+                coll, val
+            ));
+        }
+    }
+    {
+        let m = SEARCH_COUNTER.lock().unwrap();
+        out.push_str("# HELP vector_search_total Total search requests\n");
+        out.push_str("# TYPE vector_search_total counter\n");
+        for ((coll, hyb), val) in m.iter() {
+            out.push_str(&format!(
+                "vector_search_total{{collection=\"{}\",hybrid=\"{}\"}} {}\n",
+                coll, hyb, val
+            ));
+        }
+    }
+
+    // --- Gauges (docs + HNSW) ---
+    {
+        let m = DOCS_GAUGE.lock().unwrap();
+        out.push_str("# HELP vector_docs_total Current number of documents in collection\n");
+        out.push_str("# TYPE vector_docs_total gauge\n");
+        for (coll, val) in m.iter() {
+            out.push_str(&format!("vector_docs_total{{collection=\"{}\"}} {}\n", coll, val));
+        }
+    }
+    {
+        let m = HNSW_NUM_VECTORS_GAUGE.lock().unwrap();
+        out.push_str("# HELP hnsw_num_vectors Number of vectors in HNSW index per collection\n");
+        out.push_str("# TYPE hnsw_num_vectors gauge\n");
+        for (coll, val) in m.iter() {
+            out.push_str(&format!("hnsw_num_vectors{{collection=\"{}\"}} {}\n", coll, val));
+        }
+    }
+    {
+        let m = HNSW_MAX_CONNECTIONS_GAUGE.lock().unwrap();
+        out.push_str("# HELP hnsw_max_connections Max connections (M) in HNSW per collection\n");
+        out.push_str("# TYPE hnsw_max_connections gauge\n");
+        for (coll, val) in m.iter() {
+            out.push_str(&format!("hnsw_max_connections{{collection=\"{}\"}} {}\n", coll, val));
+        }
+    }
+    {
+        let m = HNSW_EF_CONSTRUCTION_GAUGE.lock().unwrap();
+        out.push_str("# HELP hnsw_ef_construction efConstruction parameter in HNSW per collection\n");
+        out.push_str("# TYPE hnsw_ef_construction gauge\n");
+        for (coll, val) in m.iter() {
+            out.push_str(&format!("hnsw_ef_construction{{collection=\"{}\"}} {}\n", coll, val));
+        }
+    }
+    {
+        let m = HNSW_EF_SEARCH_GAUGE.lock().unwrap();
+        out.push_str("# HELP hnsw_ef_search Default efSearch parameter in HNSW per collection\n");
+        out.push_str("# TYPE hnsw_ef_search gauge\n");
+        for (coll, val) in m.iter() {
+            out.push_str(&format!("hnsw_ef_search{{collection=\"{}\"}} {}\n", coll, val));
+        }
+    }
+
+    // --- Histograms ---
+    // quant_error
+    {
+        let h = QUANT_ERROR_HIST.lock().unwrap();
+        out.push_str("# HELP quant_error Quantization error (RMS) histogram\n");
+        out.push_str("# TYPE quant_error histogram\n");
+        for (coll, data) in h.iter() {
+            for (le, cnt) in &data.buckets {
+                let le_str = if le.is_infinite() { "+Inf".to_string() } else { le.to_string() };
+                out.push_str(&format!(
+                    "quant_error_bucket{{collection=\"{}\",le=\"{}\"}} {}\n",
+                    coll, le_str, cnt
+                ));
+            }
+            out.push_str(&format!(
+                "quant_error_sum{{collection=\"{}\"}} {}\n",
+                coll, data.sum
+            ));
+            out.push_str(&format!(
+                "quant_error_count{{collection=\"{}\"}} {}\n",
+                coll, data.count
+            ));
+        }
+    }
+
+    // search latency (also covers embed+ingest time when labeled hybrid="false")
+    {
+        let h = SEARCH_LATENCY_HIST.lock().unwrap();
+        out.push_str("# HELP vector_search_latency_seconds Search/ingest latency in seconds\n");
+        out.push_str("# TYPE vector_search_latency_seconds histogram\n");
+        for ((coll, hyb), data) in h.iter() {
+            for (le, cnt) in &data.buckets {
+                let le_str = if le.is_infinite() { "+Inf".to_string() } else { le.to_string() };
+                out.push_str(&format!(
+                    "vector_search_latency_seconds_bucket{{collection=\"{}\",hybrid=\"{}\",le=\"{}\"}} {}\n",
+                    coll, hyb, le_str, cnt
+                ));
+            }
+            out.push_str(&format!(
+                "vector_search_latency_seconds_sum{{collection=\"{}\",hybrid=\"{}\"}} {}\n",
+                coll, hyb, data.sum
+            ));
+            out.push_str(&format!(
+                "vector_search_latency_seconds_count{{collection=\"{}\",hybrid=\"{}\"}} {}\n",
+                coll, hyb, data.count
+            ));
+        }
+    }
 
     (
         StatusCode::OK,
-        [("Content-Type", "text/plain; version=0.0.4")],
-        buffer,
+        [("Content-Type", "text/plain; version=0.0.4; charset=utf-8")],
+        out.into_bytes(),
     )
 }
 
@@ -601,7 +755,7 @@ async fn persistent_rate_limit_middleware(
 /// Also serves a simple HTMX demo UI at "/" from ./static
 pub fn create_router(collections: Collections) -> Router {
     let state = AppState {
-        collections: Arc::new(Mutex::new(collections)),
+        collections: Arc::new(TokioMutex::new(collections)),
     };
 
     // Rate limiter config (per-IP by default)

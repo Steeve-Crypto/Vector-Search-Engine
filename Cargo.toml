@@ -59,8 +59,9 @@ uuid = { version = "1", features = ["v4", "serde", "fast-rng"] }
 thiserror = "2"
 anyhow = "1"
 
-# Metrics (for /metrics and Prometheus)
-prometheus = "0.14"
+# Phase 7: OpenTelemetry for traces (metrics are exposed via lightweight manual
+# Prometheus text exposition on /metrics - no `prometheus` crate dependency)
+# See observability/ and docker-compose.observability.yml for scrapers.
 
 # Phase 7: OpenTelemetry for traces to integrate with SigNoz, Jaeger, etc.
 opentelemetry = { version = "0.23", features = ["trace"] }
