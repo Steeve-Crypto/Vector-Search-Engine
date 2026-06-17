@@ -237,7 +237,7 @@ These ensure the project is robust, observable, and production-viable. Prioritiz
 - Enhanced RAG: citation support, re-ranking stub, configurable top-k per request.
 - Exit criteria: streaming chat works with private LLM, configurable templates, working standalone bin and Python example, retrieval endpoint usable by frameworks.
 
-### Phase 11: Full Production Ecosystem
+### Phase 11: Full Production Ecosystem (completed alongside Phase 10)
 - OpenAPI spec generation and Swagger UI.
 - Official client libraries (Rust crate features, PyPI package).
 - Integration examples: full RAG with Ollama + vector, LangChain retriever.
