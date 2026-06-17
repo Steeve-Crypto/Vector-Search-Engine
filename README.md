@@ -182,7 +182,13 @@ flowchart TD
 ```
 
 See [useCase.md](./useCase.md) for detailed real-world use cases and cost analysis.  
-See `plan.md` for the phased development plan and `progress.md` for implementation status.
+See `plan.md` for the phased development plan (Phase 9: Scalability etc) and `progress.md` for status.
+
+## Phase 9 Ops Runbook (summary)
+- Scaling: use ShardedCollections or multiple instances with gRPC.
+- Backup: copy data/ dir + periodic `save_hnsw` dumps.
+- Monitoring: /metrics + OTEL to Jaeger/Prom.
+- See plan.md for full.
 
 ## Sample Dataset Loader & Evaluation Harness
 
