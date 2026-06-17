@@ -28,6 +28,7 @@ pub use embedder::{download_model_if_needed, embed, embed_batch, Embedder, Embed
 pub use collection::{Collections, ShardedCollections};
 pub use hnsw_index::{HnswConfig, HnswIndex, HnswStats};
 pub use quantization::{dequantize, quantize, quantization_error, QuantizedVector, ProductQuantizer};
+// Real k-means PQ (Phase 8): ProductQuantizer::train(samples, m, k) for production-grade compression.
 
 /// Internal struct for sled storage with quantized embedding (Phase 6 integration).
 #[derive(serde::Serialize, serde::Deserialize)]

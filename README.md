@@ -278,7 +278,7 @@ Semantic power demo: "rust safety" ranks rust docs over python ones.
 - Metadata filtering opt: over-fetch + JSON filter support e.g. `{"source": "demo"}`
 - Scalar + full PQ quantization: `src/quantization.rs` (QuantizedVector, ProductQuantizer). Integrated to sled storage by default (embeddings stored quantized, dequant on load).
 - Multiple indexes/collections: `Collections` and `ShardedCollections` for multi-tenant/sharded.
-- gRPC stub: `src/grpc_stub.rs` (OpenAI /v1/embeddings compat endpoint also added).
+- gRPC server (Phase 8): `src/grpc_stub.rs` + `proto/vector_search.proto` (tonic). Build with `--features grpc`. Endpoints: Embed, Search, Ingest, Stats. Shares collections with REST. (stub was Phase 6).
 - UI improvements: collection/hybrid/quant support in HTMX UI.
 - Auth/multi-tenancy: via collections + API key.
 - Benchmarks with quant: see `benches/search_bench.rs` (quantize/dequant + search impact).
