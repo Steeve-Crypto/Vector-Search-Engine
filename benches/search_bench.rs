@@ -116,6 +116,18 @@ fn bench_quantization(c: &mut Criterion) {
             black_box(results);
         })
     });
+
+    // Phase 9: scalar vs PQ (default in engine now uses PQ)
+    c.bench_function("pq_vs_scalar_search_note", |b| {
+        let engine = setup_engine(1000);
+        let query = "vector search pq benchmark";
+        let qemb = embed(query).unwrap();
+        b.iter(|| {
+            // engine uses trained PQ by default for storage/search path (dequant)
+            let results = engine.search(black_box(&qemb), 5).unwrap();
+            black_box(results);
+        })
+    });
 }
 
 criterion_group!(
