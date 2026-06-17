@@ -23,12 +23,46 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - uses: dtolnay/rust-toolchain@stable
-    - run: cargo bench -- --help || true  # don't fail if no model, just smoke
+    # Run real (reduced) benches for regression visibility in CI logs.
+    # Small sample/measurement keeps runtime acceptable on PRs.
+    # Large regressions in ingest/search/quant will show up in duration or as CI timeouts.
+    # To compare locally: cargo bench -- --save-baseline before && cargo bench -- --baseline before
+    - run: |
+        cargo bench --bench search_bench -- \
+          --sample-size 8 \
+          --warm-up-time 0.3 \
+          --measurement-time 1.0 \
+          --nresamples 2000 || true
 
   docker:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
     - run: docker build -t vector-search-engine:test .
+
+  load:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: dtolnay/rust-toolchain@stable
+    - name: Build
+      run: cargo build
+    - name: Start server in background + run load test
+      run: |
+        set -e
+        mkdir -p /tmp/ci-load-data
+        # Use debug build for CI speed; --quick keeps test light
+        cargo run -- serve --host 127.0.0.1 --port 18080 --data-dir /tmp/ci-load-data &
+        SERVER_PID=$!
+        echo "SERVER_PID=$SERVER_PID"
+        # Wait for server ready (health)
+        for i in {1..20}; do
+          if curl -fsS http://127.0.0.1:18080/health >/dev/null 2>&1; then break; fi
+          sleep 1
+        done
+        curl -fsS http://127.0.0.1:18080/health || (echo "server failed to start"; kill $SERVER_PID || true; exit 1)
+        ./scripts/load_test.sh --base http://127.0.0.1:18080 --quick || true
+        kill $SERVER_PID || true
+        echo "Load test job finished"
 
   # Add more: security (cargo audit), etc.
