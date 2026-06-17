@@ -953,7 +953,7 @@ pub async fn retrieve_handler(
 
 /// Simple API key auth middleware (Phase 4/9)
 /// Checks for X-API-Key header if API_KEY env var is set.
-/// Phase 9: per-collection keys possible via extension; mTLS for gRPC in tonic.
+/// Phase 11: per-collection keys, mTLS for gRPC, audit logging.
 async fn api_key_auth(
     req: Request<axum::body::Body>,
     next: Next,
