@@ -44,6 +44,7 @@ use tracing::{debug, info, warn};
 
 /// Dimension of the embedding vectors (all-MiniLM-L6-v2 produces 384-dim).
 pub const EMBED_DIM: usize = 384;
+// Phase 11: multi-modal prep - future image embeddings (e.g. 512 dim for CLIP) via similar ONNX.
 
 /// Error type for core operations.
 #[derive(Error, Debug)]
