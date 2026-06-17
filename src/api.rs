@@ -693,7 +693,7 @@ pub struct OpenAIUsage {
     pub total_tokens: usize,
 }
 
-// Phase 9: RAG Adapter for Private AI chat apps
+// Phase 9/11: RAG Adapter for Private AI chat apps. Monitoring via OTEL + /metrics for retrieval latency.
 // OpenAI-compatible /v1/chat/completions that performs retrieval-augmented generation.
 // - Uses the local vector engine for context retrieval (embeddings + search).
 // - Augments the conversation with retrieved documents.
