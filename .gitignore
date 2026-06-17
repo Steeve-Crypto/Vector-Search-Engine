@@ -1,0 +1,27 @@
+# Rust
+/target
+**/*.rs.bk
+Cargo.lock
+
+# Data and models (large binary files)
+models/
+!models/.gitkeep
+data/
+*.db
+*.sled
+*.index
+
+# IDE / editors
+.idea/
+.vscode/
+*.swp
+*~
+.DS_Store
+
+# Logs
+*.log
+logs/
+
+# Env
+.env
+.env.local
