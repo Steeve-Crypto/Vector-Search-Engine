@@ -68,6 +68,10 @@ enum Commands {
         /// Show full metadata in output
         #[arg(long)]
         full: bool,
+
+        /// Use hybrid search (keyword + vector, Phase 6)
+        #[arg(long)]
+        hybrid: bool,
     },
 
     /// Print engine statistics
@@ -163,17 +167,21 @@ fn main() -> anyhow::Result<()> {
             // Persistence is automatic via sled in open_persistent mode.
         }
 
-        Commands::Search { query, limit, full } => {
+        Commands::Search { query, limit, full, hybrid } => {
             if engine.is_empty() {
                 println!("(no documents ingested yet in this session)");
                 println!("Tip: run `cargo run -- ingest --text \"example text\"` first");
                 return Ok(());
             }
 
-            let query_emb = embed(&query)?;
-            let results = engine.search(&query_emb, limit)?;
+            let results = if hybrid {
+                engine.hybrid_search(&query, limit)?
+            } else {
+                let query_emb = embed(&query)?;
+                engine.search(&query_emb, limit)?
+            };
 
-            println!("Top {} results for query: {:?}", results.len(), query);
+            println!("Top {} results for query: {:?} (hybrid={})", results.len(), query, hybrid);
             for (i, r) in results.iter().enumerate() {
                 println!(
                     "{:2}. score={:.4}  id={}  text=\"{}\"",

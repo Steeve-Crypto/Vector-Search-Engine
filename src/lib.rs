@@ -259,6 +259,50 @@ impl VectorEngine {
         Ok(results)
     }
 
+    /// Simple keyword score for hybrid search (Phase 6).
+    /// Uses normalized term overlap (Jaccard-like) between query words and document text.
+    fn keyword_score(text: &str, query: &str) -> f32 {
+        let text_lower = text.to_lowercase();
+        let query_words: Vec<&str> = query.split_whitespace().filter(|w| !w.is_empty()).collect();
+        if query_words.is_empty() {
+            return 0.0;
+        }
+        let mut matches = 0;
+        for w in &query_words {
+            if text_lower.contains(w) {
+                matches += 1;
+            }
+        }
+        matches as f32 / query_words.len() as f32
+    }
+
+    /// Hybrid search (Phase 6): combines vector similarity (HNSW) with keyword overlap.
+    /// Weight: 0.7 vector + 0.3 keyword (tunable).
+    /// Returns top-k with combined score (higher better).
+    pub fn hybrid_search(&self, query: &str, limit: usize) -> Result<Vec<SearchResult>> {
+        if query.trim().is_empty() {
+            return Ok(vec![]);
+        }
+        let query_emb = embed(query).map_err(|e| VectorError::Internal(e.to_string()))?;
+        // Over-fetch from vector search for better hybrid reranking
+        let vec_results = self.search(&query_emb, limit * 3)?;
+
+        let mut combined: Vec<SearchResult> = vec_results
+            .into_iter()
+            .map(|mut r| {
+                let kw = Self::keyword_score(&r.text, query);
+                let combined_score = 0.7 * r.score + 0.3 * kw;
+                r.score = combined_score.clamp(0.0, 1.0);
+                r.distance = Some(1.0 - r.score);
+                r
+            })
+            .collect();
+
+        combined.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        combined.truncate(limit);
+        Ok(combined)
+    }
+
     /// Evaluation harness (Phase 5): approximate recall@K vs brute-force on current docs.
     /// Returns average recall over the provided query embeddings.
     pub fn evaluate_recall(&self, query_embeddings: &[Vec<f32>], k: usize) -> f64 {
@@ -491,5 +535,17 @@ mod tests {
         let _ = engine.ingest("completely unrelated cooking recipes".into(), emb2, serde_json::json!({}));
         let recall = engine.evaluate_recall(&[emb1b], 1);
         assert!(recall > 0.5, "recall should be reasonable for similar query, got {}", recall);
+    }
+
+    #[test]
+    fn test_hybrid_search() {
+        let mut engine = VectorEngine::new(EngineConfig::default());
+        let _ = engine.ingest("rust is fast and safe for systems programming".into(), embed("rust is fast and safe for systems programming").unwrap(), serde_json::json!({}));
+        let _ = engine.ingest("python is great for data science and ML".into(), embed("python is great for data science and ML").unwrap(), serde_json::json!({}));
+
+        let results = engine.hybrid_search("rust performance", 2).unwrap();
+        assert!(!results.is_empty());
+        // Hybrid should still rank the rust doc high
+        assert!(results[0].text.to_lowercase().contains("rust"));
     }
 }

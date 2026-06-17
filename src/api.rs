@@ -71,7 +71,9 @@ pub struct SearchRequest {
     #[serde(default)]
     pub min_score: Option<f32>,
     #[serde(default)]
-    pub metadata_filter: Option<String>,
+    pub metadata_filter: Option<serde_json::Value>,  // Phase 6: e.g. {"source": "blog"} for equality filter on top-level metadata keys. Post-filter with over-fetch optimization.
+    #[serde(default)]
+    pub hybrid: bool,  // Phase 6: enable hybrid keyword + vector search
     // Future: filters, ef_search override, etc.
 }
 
@@ -209,11 +211,14 @@ pub async fn search_handler(
 
     let limit = payload.limit.clamp(1, 1000);
 
-    let query_emb = embed(&payload.query)?;
-
     let timer = SEARCH_LATENCY.with_label_values(&["search"]).start_timer();
     let engine = state.engine.lock().await;
-    let mut results = engine.search(&query_emb, limit)?;
+    let mut results = if payload.hybrid {
+        engine.hybrid_search(&payload.query, limit)?
+    } else {
+        let query_emb = embed(&payload.query)?;
+        engine.search(&query_emb, limit)?
+    };
     drop(timer); // ends timer
     SEARCH_COUNTER.inc();
 

@@ -50,6 +50,9 @@ cargo run -- ingest --text "Vector databases enable semantic search"
 
 cargo run -- search --query "systems languages" --limit 5
 
+# Hybrid search (Phase 6)
+cargo run -- search --query "rust performance" --limit 3 --hybrid
+
 cargo run -- stats
 ```
 
@@ -68,6 +71,11 @@ curl -X POST http://localhost:8080/ingest \
 curl -X POST http://localhost:8080/search \
   -H "Content-Type: application/json" \
   -d '{"query": "hello", "limit": 3}'
+
+# Hybrid (vector + keyword)
+curl -X POST http://localhost:8080/search \
+  -H "Content-Type: application/json" \
+  -d '{"query": "rust systems", "limit": 3, "hybrid": true}'
 ```
 
 ### Docker (Phase 4)
@@ -143,12 +151,13 @@ Typical results (on typical dev machine, 384d normalized vecs):
 - Search on 1k docs (k=10): <1ms
 - Search on 5k docs (k=20): ~2-5ms
 
-Recall vs brute-force is high with default params (>0.9 @10 for typical data).
+Recall vs brute-force is high with default params (>0.9 @10 for typical data). See `src/dataset.rs` + `evaluate_recall` for harness, and example for synthetic recall@K.
 
-See `benches/search_bench.rs` for code and more scenarios. Run the example:
+See `benches/search_bench.rs` for perf benchmarks. Run:
 
 ```bash
 cargo run --example eval_recall
+cargo bench
 ```
 
 Load testing:
@@ -176,7 +185,9 @@ For production: set API_KEY env, pre-populate models, monitor /metrics.
 - Distance: DistDot on L2-normalized embeddings (equivalent to cosine, efficient in hnsw_rs).
 - Rate limiting: tower_governor (in-mem) + optional sled-backed for persistence.
 
-Full ADRs in future docs/.
+See `docs/adr/` for Architecture Decision Records (e.g., 0001-persistence-choices.md).
+
+See `CONTRIBUTING.md` for contribution guidelines.
 
 ## Demo Script / Example Queries
 

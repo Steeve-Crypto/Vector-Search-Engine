@@ -4,9 +4,9 @@
 **Reference Plan:** See [plan.md](./plan.md) for the full phased breakdown.
 
 ## Current Overall Status
-- **Active Phase:** Phase 5 (Documentation & Demo) in progress.
-- **Last Completed Major Work:** Sample dataset loader (new src/dataset.rs + generate_synthetic, compute_recall helpers), updated eval example, comprehensive README with Mermaid diagram, benchmarks details, load testing cmds, deployment guide, synthetic data examples; basic advanced search params (min_score, metadata_filter) in API; HNSW load improved (stub for hnswio + rebuild).
-- **Project State:** `cargo run --example eval_recall` shows recall + synthetic. Full docs foundation. Tests pass. Next: CONTRIBUTING.md, ADR, more UI polish, or Phase 6 (e.g. hybrid search stub). All prior phases solid.
+- **Active Phase:** Phase 6 (Advanced) started (hybrid search); Phase 5 complete.
+- **Last Completed Major Work:** Phase 5 fully: dataset loader (src/dataset.rs), eval harness + example, excellent README (Mermaid + all required), CONTRIBUTING.md, docs/adr/ with 2 ADRs. Phase 6 hybrid ongoing.
+- **Project State:** Phase 5 DONE. Docs, eval, demo complete per plan. hybrid_search functional. Ready for more Phase 6. All tests pass.
 
 ## Phase Completion Summary
 
@@ -17,8 +17,8 @@
 | 2     | Persistence & Storage         | ✅ Core Done | sled for documents (JSON serialized) + HNSW rebuild on load from embeddings; survives restarts | Implemented open_persistent + auto-write on ingest. Rebuild is reliable. Graph snapshot via hnswio available but not primary yet. |
 | 3     | API Layer                     | ✅ Done    | Full Axum routes (POST /ingest + /batch, POST /search, GET /stats /health /metrics), JSON models, error handling, CORS+trace middleware, metrics | CLI `serve` now fully functional with persistent engine |
 | 4     | Polish & Production           | ✅ Done    | All sub-items: API key auth, rate limiting fn, improved metrics, docker with pre-download, benches, UI polish, env/clap config | Full Phase 4 complete. See details in code and README. |
-| 5     | Documentation & Demo          | 🟡 In Progress | Sample dataset loader (src/dataset.rs), enhanced eval example, full README (Mermaid, benchmarks, loadtest, deploy, ADRs notes), API search filters | Phase 5 ongoing. Ready for CONTRIBUTING, full harness integration, deployment examples. |
-| 6     | Advanced (future)             | ⏳ Future  | Hybrid, quantization, filtering, gRPC, etc.          | Out of MVP scope |
+| 5     | Documentation & Demo          | ✅ Done    | Sample dataset loader (src/dataset.rs + generate_synthetic), eval_recall example + harness (recall@K), excellent README (Mermaid, setup, benchmarks, load testing with oha/wrk, deployment, ADRs notes, demo queries), CONTRIBUTING.md, docs/adr/ (2 ADRs) | Phase 5 complete. All items delivered. |
+| 6     | Advanced (future)             | 🟡 Started | Hybrid search (vector + keyword) in engine/API/CLI | Basic hybrid implemented as first Phase 6 feature |
 
 ## Detailed Progress Within Phase 1 (Core Engine)
 
