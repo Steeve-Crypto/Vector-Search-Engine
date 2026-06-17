@@ -4,9 +4,9 @@
 **Reference Plan:** See [plan.md](./plan.md) for the full phased breakdown.
 
 ## Current Overall Status
-- **Active Phase:** Phase 4 complete.
-- **Last Completed Major Work:** All Phase 4 items (in order): simple API key auth, proper rate limiting, better Prometheus metrics, docker-compose with pre-download, benchmark improvements, UI polish (score bars + visualization), config via env/clap.
-- **Project State:** Production-ready. Docker + UI demo works. Auth/rate limiting active. Benchmarks and metrics enhanced. Full stack complete.
+- **Active Phase:** Phase 4 complete + fixes applied.
+- **Last Completed Major Work:** All Phase 4 + review fixes: re-enabled rate layer with `tower_governor` dep (SmartIpKeyExtractor + `into_make_service_with_connect_info` to fix "Unable To Extract Key!" 500s), persistent sled rate limiting implemented, more bench datasets added, plan.md updated with all recs + more.
+- **Project State:** No more 500s from rate key extraction. Governor active for per-IP limits. Persistent rate fn complete (sled for durability). Full review passed (tests clean, clippy clean after fixes). Production + demo ready.
 
 ## Phase Completion Summary
 

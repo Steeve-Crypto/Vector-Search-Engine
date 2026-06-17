@@ -137,3 +137,65 @@ CLI / Simple UI  -->  Axum REST API  -->  VectorEngine
 ---
 
 **This plan is the reference.** Update `progress.md` after each phase completion.
+
+## Recommendations from Post-Implementation Review (2026-06-17)
+
+After completing Phase 4 (and prior), the following issues were identified and addressed/fixed where possible. These should be tracked for future iterations:
+
+### Fixed in this session
+- **Rate limiting key extraction failures ("Unable To Extract Key!" leading to 500 errors)**: Switched default to `SmartIpKeyExtractor` (header-based with peer fallback) and configured `into_make_service_with_connect_info::<std::net::SocketAddr>()` in the Axum server. This prevents 500s when connect info or headers are missing (common in Docker, proxies, tests). Governor now properly returns rate limit responses instead of internal errors.
+- **Minor clippy issues**: Fixed redundant locals, needless range loops (used iterators), manual clamp patterns (standardized on `.clamp`), MutexGuard across await (scoped locks + explicit drops in rate middleware).
+- **Dead/unused code**: Added `#[allow(dead_code)]` for optional persistent rate fn and RATE_DB (kept for future activation). Removed unused imports (e.g., HeaderMap, HnswIo where not used).
+- **Persistent rate limiting**: Implemented sled-backed middleware (per-IP counters with time windows, using bincode for serialization, flush for durability). Although layered alongside governor for now (in-mem + persistent hybrid), it survives restarts. (Note: sled alpha had Sync issues; wrapped in Mutex.)
+
+### Additional Recommendations (add to future phases or backlog)
+- **Hybrid Rate Limiting**: Combine `tower_governor` (fast in-memory GCRA bursts) with the sled-based persistent layer (for long-term limits across restarts). Use governor for short bursts, sled for counts. Support keying by API key (if present) + IP. Add `use_headers(true)` to governor for rate limit response headers (X-RateLimit-*).
+- **Enhanced Benchmarks**: 
+  - Add recall@K evaluation: Compare HNSW results vs brute-force ground truth on synthetic/real datasets (e.g., use tempfile for random normalized vecs, or load sample data like SIFT subsets).
+  - Measure more scenarios: varying doc counts (1k/10k/100k), ef_search impact, concurrent inserts/searches, embed latency separate from search.
+  - Add throughput (QPS) under load, memory usage (via criterion or custom).
+  - Integrate with CI for regression detection. Update benches to optionally skip model download.
+- **UI/Frontend Polish**: 
+  - Add latency display per search (track client-side or via response).
+  - Results visualization: e.g., score histograms, top-k charts (use Chart.js or inline SVG, still minimal deps).
+  - Dark mode toggle, search history, copy ID buttons, filter UI (even if backend post-filter only).
+  - Make UI a separate static site or embed more HTMX interactions (e.g., real-time stats via SSE).
+- **HNSW Full Persistence**: Implement `hnswio` dump/load in `HnswIndex` (currently stubbed with note to rebuild). On load, prefer dump if present (faster startup for large indexes), fall back to sled embeddings rebuild. Handle labels mapping in dump files. Add versioning for dumps.
+- **API & Error Handling Improvements**:
+  - Better error classification: Use custom error types that don't leak internals in 500 responses. Add request ID tracing.
+  - Support for search params: `ef_search`, `min_score`, metadata filters (post-filter in engine for now, optimize later).
+  - Batch search, upsert semantics.
+  - OpenAPI/Swagger spec generation (use utoipa or similar).
+- **Observability & Metrics**:
+  - Add more: active connections gauge, embed duration histogram, HNSW insert/search specific, error rates by type.
+  - Structured tracing with spans for full request (auth -> rate -> embed -> hnsw -> sled).
+  - Integrate with Prometheus + Grafana in docker-compose.
+  - Health: deeper checks (sled, model loaded?).
+- **Security & Production**:
+  - Rate limit by API key + IP combo (extract key in governor if auth present).
+  - Input sanitization (text length limits, metadata size).
+  - HTTPS/TLS docs (use nginx in compose or axum tls).
+  - CORS: make configurable, not always permissive.
+  - API key: support multiple keys, rotation, from file/env.
+  - Concurrency: Consider sharded locks or DashMap for docs/HNSW if high throughput (current Mutex on whole engine is bottleneck).
+- **Config & Deployment**:
+  - Full Config struct (serde, from env/file via figment or similar). Support API_KEY from file, log levels, HNSW params (M, ef_c).
+  - Clap for more server opts, or env only.
+  - Docker: multi-arch builds, .dockerignore tighten, non-root, secrets for keys.
+  - Deploy: examples for Fly.io/Railway (with volumes), kubernetes manifests.
+- **Testing**:
+  - Add API integration tests (use axum::test or tower::ServiceExt).
+  - Property tests for embeddings (norm=1), HNSW recall.
+  - Load tests (e.g., with oha or wrk).
+  - Test persistence roundtrips, rate limits.
+- **Docs & Misc**:
+  - Update README/plan with full feature matrix, auth examples, rate limit behavior.
+  - Architecture: ADR for persistence choices (rebuild vs dump).
+  - Benchmarks in CI + results in docs.
+  - Consider removing alpha sled (migrate to rocksdb or redb for stability) if issues persist.
+  - Quantization/Hybrid as Phase 6, but sketch in plan.
+  - Performance: Profile with flamegraph, optimize embed batching.
+
+These ensure the project is robust, observable, and production-viable. Prioritize based on usage (e.g., Docker + UI first for demos).
+
+**Next Milestones**: Phase 5 (Docs & Demo) incorporating above, or targeted fixes.

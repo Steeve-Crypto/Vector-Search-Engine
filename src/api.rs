@@ -19,7 +19,7 @@
 
 use axum::{
     extract::{Json, State},
-    http::{HeaderMap, Request, StatusCode},
+    http::{Request, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -27,12 +27,13 @@ use axum::{
 };
 use prometheus::{Encoder, TextEncoder};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::env;
-use std::sync::{Arc, Mutex as StdMutex};
-use std::time::{Duration, Instant};
+use std::sync::Arc;
+use std::sync::LazyLock;
 use tokio::sync::Mutex;
 use tower_http::{cors::CorsLayer, limit::RequestBodyLimitLayer, services::ServeDir, trace::TraceLayer};
+use tower_governor::{governor::GovernorConfigBuilder, key_extractor::SmartIpKeyExtractor, GovernorLayer};
+use sled;
 use tracing::info;
 
 use crate::{SearchResult, VectorEngine, embed};
@@ -202,7 +203,7 @@ pub async fn search_handler(
         return Err(ApiError::BadRequest("query cannot be empty".into()));
     }
 
-    let limit = payload.limit.max(1).min(1000);
+    let limit = payload.limit.clamp(1, 1000);
 
     let query_emb = embed(&payload.query)?;
 
@@ -296,20 +297,18 @@ async fn api_key_auth(
     Ok(next.run(req).await)
 }
 
-/// Simple per-IP rate limiter (Phase 4)
-/// Limits to ~10 requests per 10 seconds per IP for demo.
-/// Uses in-memory map (not production persistent).
-static RATE_LIMITER: std::sync::LazyLock<StdMutex<HashMap<String, (Instant, u32)>>> =
-    std::sync::LazyLock::new(|| StdMutex::new(HashMap::new()));
+// Persistent per-IP rate limiting using sled (replaces or supplements in-memory for durability)
+#[allow(dead_code)]
+static RATE_DB: LazyLock<std::sync::Mutex<sled::Db>> = LazyLock::new(|| {
+    let _ = std::fs::create_dir_all("data");
+    std::sync::Mutex::new(sled::open("data/rate.sled").expect("failed to open rate sled db"))
+});
 
-const RATE_LIMIT: u32 = 10;
-const RATE_WINDOW: Duration = Duration::from_secs(10);
-
-async fn rate_limit_middleware(
+#[allow(dead_code)]
+async fn persistent_rate_limit_middleware(
     req: Request<axum::body::Body>,
     next: Next,
-) -> Result<impl IntoResponse, StatusCode> {
-    // Get IP from header or default (for demo, use X-Forwarded-For or remote)
+) -> Result<Response, StatusCode> {
     let ip = req
         .headers()
         .get("x-forwarded-for")
@@ -321,21 +320,44 @@ async fn rate_limit_middleware(
         .trim()
         .to_string();
 
-    let mut limiter = RATE_LIMITER.lock().unwrap();
-    let now = Instant::now();
+    let key = format!("rate:{}", ip).into_bytes();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
 
-    let entry = limiter.entry(ip.clone()).or_insert((now, 0));
-    if now.duration_since(entry.0) > RATE_WINDOW {
-        *entry = (now, 1);
-    } else {
-        entry.1 += 1;
-        if entry.1 > RATE_LIMIT {
-            return Err(StatusCode::TOO_MANY_REQUESTS);
+    const WINDOW: u64 = 60;
+    const MAX: u32 = 30;
+
+    let (ts, c) = {
+        let db = RATE_DB.lock().unwrap();
+        if let Some(old) = db.get(&key).ok().flatten() {
+            if let Ok((old_ts, old_c)) = bincode::deserialize::<(u64, u32)>(&old) {
+                if now - old_ts > WINDOW {
+                    (now, 1u32)
+                } else if old_c < MAX {
+                    (old_ts, old_c + 1)
+                } else {
+                    return Err(StatusCode::TOO_MANY_REQUESTS);
+                }
+            } else {
+                (now, 1)
+            }
+        } else {
+            (now, 1)
         }
+    }; // guard dropped here
+
+    {
+        let db = RATE_DB.lock().unwrap();
+        let _ = db.insert(key, bincode::serialize(&(ts, c)).unwrap());
+        let _ = db.flush();
     }
 
     Ok(next.run(req).await)
 }
+
+
 
 /// Build the Axum router with all routes and middleware.
 /// Also serves a simple HTMX demo UI at "/" from ./static
@@ -343,6 +365,14 @@ pub fn create_router(engine: VectorEngine) -> Router {
     let state = AppState {
         engine: Arc::new(Mutex::new(engine)),
     };
+
+    // Rate limiter config (per-IP by default)
+    let governor_conf = GovernorConfigBuilder::default()
+        .per_second(5) // 5 req/sec
+        .burst_size(10)
+        .key_extractor(SmartIpKeyExtractor)
+        .finish()
+        .unwrap();
 
     Router::new()
         // API endpoints (protected by auth if API_KEY set)
@@ -357,6 +387,8 @@ pub fn create_router(engine: VectorEngine) -> Router {
         // Redirect root to the nice UI
         .route("/", get(|| async { axum::response::Redirect::to("/ui/") }))
         .layer(middleware::from_fn(api_key_auth))
+        .layer(GovernorLayer::new(governor_conf))  // re-enabled rate layer with dep (tower_governor)
+        // persistent_rate_limit_middleware available but not layered due to type (uses sled for durability)
         .layer(TraceLayer::new_for_http())
         .layer(CorsLayer::permissive())
         .layer(RequestBodyLimitLayer::new(2 * 1024 * 1024)) // 2MB body limit
@@ -371,6 +403,8 @@ pub async fn run_server(host: &str, port: u16, engine: VectorEngine) -> anyhow::
 
     let app = create_router(engine);
 
+    // Use with_connect_info so PeerIpKeyExtractor (and fallbacks in Smart) can get remote addr
+    let app = app.into_make_service_with_connect_info::<std::net::SocketAddr>();
     axum::serve(listener, app).await?;
     Ok(())
 }

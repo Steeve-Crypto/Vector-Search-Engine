@@ -15,12 +15,11 @@
 
 use crate::EMBED_DIM;
 use anndists::dist::DistDot;
-use hnsw_rs::hnswio::HnswIo;
 use hnsw_rs::prelude::*;
 use std::collections::HashMap;
 use std::path::Path;
 use thiserror::Error;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 use uuid::Uuid;
 
 /// Errors from the HNSW index.
@@ -97,9 +96,9 @@ impl HnswIndex {
     /// Create a new empty HNSW index.
     pub fn new(config: HnswConfig) -> Self {
         // Compute a reasonable max layer (log scale is common)
-        let nb_elements = config.max_elements.max(1);
+        let nb_elements = config.max_elements.clamp(1, usize::MAX);
         let max_layer = (nb_elements as f32).ln().trunc() as usize;
-        let max_layer = max_layer.max(4).min(16);
+        let max_layer = max_layer.clamp(4, 16);
 
         info!(
             max_nb_connection = config.max_nb_connection,

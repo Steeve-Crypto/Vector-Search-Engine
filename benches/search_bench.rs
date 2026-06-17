@@ -46,6 +46,19 @@ fn bench_search_hnsw(c: &mut Criterion) {
     });
 }
 
+fn bench_search_large(c: &mut Criterion) {
+    let engine = setup_engine(5000);
+    let query = "vector search engine hnsw onnx";
+    let qemb = embed(query).unwrap();
+
+    c.bench_function("search_hnsw_5000_docs_k20", |b| {
+        b.iter(|| {
+            let results = engine.search(black_box(&qemb), 20).unwrap();
+            black_box(results);
+        })
+    });
+}
+
 fn bench_search_latency(c: &mut Criterion) {
     let engine = setup_engine(5000);
     let queries = vec![
@@ -73,6 +86,7 @@ criterion_group!(
     benches,
     bench_ingest,
     bench_search_hnsw,
+    bench_search_large,
     bench_search_latency
 );
 criterion_main!(benches);

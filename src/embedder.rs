@@ -146,7 +146,7 @@ impl Embedder {
         for (b, encoding) in encodings.iter().enumerate() {
             let ids = encoding.get_ids();
             let mask = encoding.get_attention_mask();
-            let seq_len = ids.len().min(max_len);
+            let seq_len = ids.len().clamp(0, max_len);
 
             for i in 0..seq_len {
                 input_ids_vec[b * max_len + i] = ids[i] as i64;

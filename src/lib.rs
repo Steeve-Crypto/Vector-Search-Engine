@@ -191,7 +191,6 @@ impl VectorEngine {
         if self.docs.len() >= self.config.max_docs {
             // Simple eviction of oldest (not great, placeholder)
             if let Some((&oldest, _)) = self.docs.iter().next() {
-                let oldest = oldest;
                 self.docs.remove(&oldest);
                 // Note: we do not currently support deletion from HNSW (common limitation).
                 // For a production system we would either rebuild or use a tombstone + filter.
@@ -345,14 +344,14 @@ pub fn simple_hash_embedding(text: &str) -> Vec<f32> {
     let mut rng_state = seed;
 
     // Simple xorshift + normalize to unit length
-    for i in 0..EMBED_DIM {
+    for val in vec.iter_mut().take(EMBED_DIM) {
         rng_state ^= rng_state << 13;
         rng_state ^= rng_state >> 7;
         rng_state ^= rng_state << 17;
 
         // Map to roughly [-1, 1] range
-        let val = ((rng_state as i64 % 10000) as f32 / 5000.0) - 1.0;
-        vec[i] = val;
+        let v = ((rng_state as i64 % 10000) as f32 / 5000.0) - 1.0;
+        *val = v;
     }
 
     // Add a tiny amount of lexical signal so "rust" and "rustacean" are closer than random
