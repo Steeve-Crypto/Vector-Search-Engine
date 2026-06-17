@@ -4,9 +4,9 @@
 **Reference Plan:** See [plan.md](./plan.md) for the full phased breakdown.
 
 ## Current Overall Status
-- **Active Phase:** Phase 5 (Documentation & Demo) started; Phase 4 fixes integrated.
-- **Last Completed Major Work:** Phase 5 start: evaluation harness (evaluate_recall + example), README enhanced with Mermaid, benchmarks, load testing, deployment; added min_score + metadata_filter to search API; HNSW load stub improved.
-- **Project State:** Eval example works (recall 1.0 on small). API supports advanced search params. README much better. Ready for full docs, sample data, ADRs. All prior complete.
+- **Active Phase:** Phase 5 (Documentation & Demo) in progress.
+- **Last Completed Major Work:** Sample dataset loader (new src/dataset.rs + generate_synthetic, compute_recall helpers), updated eval example, comprehensive README with Mermaid diagram, benchmarks details, load testing cmds, deployment guide, synthetic data examples; basic advanced search params (min_score, metadata_filter) in API; HNSW load improved (stub for hnswio + rebuild).
+- **Project State:** `cargo run --example eval_recall` shows recall + synthetic. Full docs foundation. Tests pass. Next: CONTRIBUTING.md, ADR, more UI polish, or Phase 6 (e.g. hybrid search stub). All prior phases solid.
 
 ## Phase Completion Summary
 
@@ -17,7 +17,7 @@
 | 2     | Persistence & Storage         | ✅ Core Done | sled for documents (JSON serialized) + HNSW rebuild on load from embeddings; survives restarts | Implemented open_persistent + auto-write on ingest. Rebuild is reliable. Graph snapshot via hnswio available but not primary yet. |
 | 3     | API Layer                     | ✅ Done    | Full Axum routes (POST /ingest + /batch, POST /search, GET /stats /health /metrics), JSON models, error handling, CORS+trace middleware, metrics | CLI `serve` now fully functional with persistent engine |
 | 4     | Polish & Production           | ✅ Done    | All sub-items: API key auth, rate limiting fn, improved metrics, docker with pre-download, benches, UI polish, env/clap config | Full Phase 4 complete. See details in code and README. |
-| 5     | Documentation & Demo          | 🟡 Started | Eval harness + example, README with Mermaid/benches/loadtest/deploy, basic metadata filter + min_score in API | Phase 5 in progress; HNSW load stub, more recs in plan |
+| 5     | Documentation & Demo          | 🟡 In Progress | Sample dataset loader (src/dataset.rs), enhanced eval example, full README (Mermaid, benchmarks, loadtest, deploy, ADRs notes), API search filters | Phase 5 ongoing. Ready for CONTRIBUTING, full harness integration, deployment examples. |
 | 6     | Advanced (future)             | ⏳ Future  | Hybrid, quantization, filtering, gRPC, etc.          | Out of MVP scope |
 
 ## Detailed Progress Within Phase 1 (Core Engine)

@@ -115,6 +115,20 @@ flowchart TD
 
 See `plan.md` for the full phased plan and `progress.md` for current status.
 
+## Sample Dataset Loader & Evaluation Harness
+
+Use built-in synthetic generator (for reproducible evals without external data like SIFT):
+
+```rust
+use vector_search_engine::dataset;
+let docs = dataset::generate_synthetic(1000, 384, 42);
+// then ingest and call engine.evaluate_recall(&queries, 10)
+```
+
+See `src/dataset.rs` and `examples/eval_recall.rs` (run with `cargo run --example eval_recall`).
+
+It includes helpers for brute-force ground truth and recall@K computation.
+
 ## Evaluation & Benchmarks
 
 Run with real data:
@@ -153,6 +167,27 @@ Expect high QPS with low latency for HNSW.
 - Example fly.toml or Procfile can use the serve command.
 
 See `Dockerfile`, `docker-compose.yml` .
+
+For production: set API_KEY env, pre-populate models, monitor /metrics.
+
+## Architecture Decisions (ADR notes)
+
+- Persistence: sled for docs (simple embedded), HNSW rebuilt on load (reliable) or optional hnswio snapshot for speed.
+- Distance: DistDot on L2-normalized embeddings (equivalent to cosine, efficient in hnsw_rs).
+- Rate limiting: tower_governor (in-mem) + optional sled-backed for persistence.
+
+Full ADRs in future docs/.
+
+## Demo Script / Example Queries
+
+Use CLI or curl:
+
+```bash
+cargo run -- ingest --text "Rust for high performance systems" --meta '{"lang":"rust"}'
+cargo run -- search --query "high performance rust" --limit 3
+```
+
+Semantic power demo: "rust safety" ranks rust docs over python ones.
 
 For production, pre-download model in image or init container, set API_KEY, use HTTPS.
 

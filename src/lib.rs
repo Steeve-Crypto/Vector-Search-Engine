@@ -14,6 +14,7 @@ use thiserror::Error;
 use uuid::Uuid;
 
 pub mod api;
+pub mod dataset;
 pub mod embedder;
 pub mod hnsw_index;
 
