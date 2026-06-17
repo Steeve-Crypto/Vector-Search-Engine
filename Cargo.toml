@@ -41,6 +41,8 @@ openssl = { version = "0.10", features = ["vendored"] }
 ureq = { version = "3", features = ["json"] }
 reqwest = { version = "0.11", default-features = false, features = ["rustls-tls", "json", "stream"] }
 futures-util = { version = "0.3", default-features = false }
+utoipa = { version = "4", features = ["axum_extras", "uuid"] }
+utoipa-swagger-ui = { version = "6", features = ["axum"] }
 
 # Serialization for sled documents and HNSW label mappings
 bincode = "1.3"

@@ -100,7 +100,7 @@ impl Document {
 }
 
 /// Search result returned to the caller.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SearchResult {
     pub id: Uuid,
     pub text: String,

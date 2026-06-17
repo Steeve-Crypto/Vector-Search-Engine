@@ -29,6 +29,8 @@ use futures_util::stream::StreamExt;
 use reqwest::Client;
 use serde_json::Value;
 use std::convert::Infallible;
+use utoipa::OpenApi;
+use utoipa_swagger_ui::SwaggerUi;
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::sync::Arc;
@@ -72,7 +74,7 @@ pub struct BatchIngestRequest {
     pub documents: Vec<IngestRequest>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct SearchRequest {
     pub query: String,
     #[serde(default = "default_limit")]
@@ -99,13 +101,13 @@ pub struct StatsQuery {
     pub collection: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct SearchResponse {
     pub results: Vec<SearchResult>,
     pub count: usize,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct StatsResponse {
     pub num_documents: usize,
     pub embedding_dim: usize,
@@ -130,7 +132,7 @@ pub struct BatchSearchResponse {
     pub results: Vec<Vec<SearchResult>>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct HealthResponse {
     pub status: String,
 }
@@ -258,6 +260,15 @@ pub async fn batch_ingest_handler(
     })))
 }
 
+#[utoipa::path(
+    post,
+    path = "/search",
+    request_body = SearchRequest,
+    responses(
+        (status = 200, description = "Search results", body = SearchResponse)
+    ),
+    tag = "search"
+)]
 #[instrument(skip(state), fields(collection = %payload.collection, hybrid = %payload.hybrid))]
 pub async fn search_handler(
     State(state): State<AppState>,
@@ -650,7 +661,7 @@ pub async fn metrics_handler() -> impl IntoResponse {
 
 // Phase 6: OpenAI-compatible embeddings endpoint
 // POST /v1/embeddings
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct OpenAIEmbedRequest {
     pub input: serde_json::Value, // string or array of strings
     #[serde(default = "default_model")]
@@ -661,7 +672,7 @@ fn default_model() -> String {
     "text-embedding-ada-002".to_string() // or our all-MiniLM
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct OpenAIEmbedResponse {
     pub object: String,
     pub data: Vec<OpenAIEmbedData>,
@@ -669,14 +680,14 @@ pub struct OpenAIEmbedResponse {
     pub usage: OpenAIUsage,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct OpenAIEmbedData {
     pub object: String,
     pub embedding: Vec<f32>,
     pub index: usize,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct OpenAIUsage {
     pub prompt_tokens: usize,
     pub total_tokens: usize,
@@ -701,13 +712,13 @@ pub struct OpenAIChatRequest {
     pub collection: Option<String>,
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone, utoipa::ToSchema)]
 pub struct OpenAIChatMessage {
     pub role: String,
     pub content: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct RetrieveRequest {
     pub query: String,
     #[serde(default = "default_limit")]
@@ -718,6 +729,15 @@ pub struct RetrieveRequest {
     pub hybrid: bool,
 }
 
+#[utoipa::path(
+    post,
+    path = "/v1/embeddings",
+    request_body = OpenAIEmbedRequest,
+    responses(
+        (status = 200, description = "Embeddings", body = OpenAIEmbedResponse)
+    ),
+    tag = "embed"
+)]
 pub async fn openai_embeddings(
     State(_state): State<AppState>,
     Json(payload): Json<OpenAIEmbedRequest>,
@@ -761,6 +781,15 @@ pub async fn openai_embeddings(
 }
 
 // RAG Adapter: OpenAI-compatible chat with retrieval
+#[utoipa::path(
+    post,
+    path = "/v1/chat/completions",
+    request_body = OpenAIChatRequest,
+    responses(
+        (status = 200, description = "Chat completion", body = Value)
+    ),
+    tag = "chat"
+)]
 pub async fn openai_chat_completions(
     State(state): State<AppState>,
     Json(payload): Json<OpenAIChatRequest>,
@@ -893,6 +922,15 @@ fn re_rank_stub(mut results: Vec<SearchResult>) -> Vec<SearchResult> {
 }
 
 // Retrieval-only helper for other frameworks (Phase 9)
+#[utoipa::path(
+    post,
+    path = "/v1/retrieve",
+    request_body = RetrieveRequest,
+    responses(
+        (status = 200, description = "Retrieved documents", body = Vec<SearchResult>)
+    ),
+    tag = "search"
+)]
 pub async fn retrieve_handler(
     State(state): State<AppState>,
     Json(payload): Json<RetrieveRequest>,
@@ -940,6 +978,17 @@ static RATE_DB: LazyLock<std::sync::Mutex<sled::Db>> = LazyLock::new(|| {
     let _ = std::fs::create_dir_all("data");
     std::sync::Mutex::new(sled::open("data/rate.sled").expect("failed to open rate sled db"))
 });
+
+#[derive(OpenApi)]
+#[openapi(
+    paths(search_handler, openai_chat_completions, retrieve_handler, openai_embeddings),
+    tags(
+        (name = "search", description = "Vector search operations"),
+        (name = "embed", description = "Embedding operations"),
+        (name = "chat", description = "RAG chat completions")
+    )
+)]
+struct ApiDoc;
 
 #[allow(dead_code)]
 async fn persistent_rate_limit_middleware(
@@ -1023,6 +1072,7 @@ pub fn create_router(collections: Collections) -> Router {
         .route("/v1/embeddings", post(openai_embeddings))  // Phase 6 OpenAI compat
         .route("/v1/chat/completions", post(openai_chat_completions))  // Phase 9 RAG Adapter for private AI chat apps
         .route("/v1/retrieve", post(retrieve_handler))  // Phase 9 retrieval-only helper for frameworks
+        .route("/api-docs/openapi.json", get(|| async { Json(ApiDoc::openapi()) }))
         // Phase 4: Simple HTMX demo UI
         .nest_service("/ui", ServeDir::new("static").precompressed_gzip())
         // Redirect root to the nice UI
