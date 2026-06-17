@@ -24,6 +24,22 @@ pub fn dequantize(q: &[u8]) -> Vec<f32> {
         .collect()
 }
 
+/// Compute RMS quantization error (root mean squared diff) between original and dequantized.
+/// Useful for observability / histograms. Typical values ~0.003-0.01 for normalized vectors.
+pub fn quantization_error(orig: &[f32]) -> f64 {
+    if orig.is_empty() {
+        return 0.0;
+    }
+    let q = quantize(orig);
+    let dq = dequantize(&q);
+    let mut sum_sq = 0.0f32;
+    for (o, d) in orig.iter().zip(dq.iter()) {
+        let diff = o - d;
+        sum_sq += diff * diff;
+    }
+    (sum_sq / orig.len() as f32).sqrt() as f64
+}
+
 /// Simple quantized storage example (e.g., for sled value).
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 pub struct QuantizedVector {

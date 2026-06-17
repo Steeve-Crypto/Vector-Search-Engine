@@ -27,7 +27,7 @@ pub use embedder::{download_model_if_needed, embed, embed_batch, Embedder, Embed
 // Re-export HNSW types so higher layers (and tests) can use them directly if needed
 pub use collection::{Collections, ShardedCollections};
 pub use hnsw_index::{HnswConfig, HnswIndex, HnswStats};
-pub use quantization::{dequantize, quantize, QuantizedVector, ProductQuantizer};
+pub use quantization::{dequantize, quantize, quantization_error, QuantizedVector, ProductQuantizer};
 
 /// Internal struct for sled storage with quantized embedding (Phase 6 integration).
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -379,6 +379,9 @@ impl VectorEngine {
                 "HNSW (M={}, ef_c={}, ef_search={})",
                 hstats.max_nb_connection, hstats.ef_construction, hstats.default_ef_search
             ),
+            hnsw_max_nb_connection: hstats.max_nb_connection,
+            hnsw_ef_construction: hstats.ef_construction,
+            hnsw_default_ef_search: hstats.default_ef_search,
         }
     }
 
@@ -414,6 +417,9 @@ pub struct EngineStats {
     pub num_documents: usize,
     pub embedding_dim: usize,
     pub index_type: String,
+    pub hnsw_max_nb_connection: usize,
+    pub hnsw_ef_construction: usize,
+    pub hnsw_default_ef_search: usize,
 }
 
 /// Compute cosine similarity between two vectors.

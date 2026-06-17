@@ -1,0 +1,60 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vector-search-engine
+  labels:
+    app: vector-search-engine
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vector-search-engine
+  template:
+    metadata:
+      labels:
+        app: vector-search-engine
+    spec:
+      containers:
+      - name: vse
+        image: vector-search-engine:latest
+        ports:
+        - containerPort: 8080
+        env:
+        - name: RUST_LOG
+          value: "info"
+        - name: OTEL_EXPORTER_OTLP_ENDPOINT
+          value: "http://jaeger:4317"  # adjust for your OTEL collector
+        volumeMounts:
+        - name: data
+          mountPath: /app/data
+        - name: models
+          mountPath: /app/models
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 10
+      volumes:
+      - name: data
+        emptyDir: {}
+      - name: models
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vector-search-engine
+spec:
+  selector:
+    app: vector-search-engine
+  ports:
+  - protocol: TCP
+    port: 8080
+    targetPort: 8080
+  type: ClusterIP

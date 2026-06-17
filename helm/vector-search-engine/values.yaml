@@ -1,0 +1,36 @@
+replicaCount: 1
+
+image:
+  repository: vector-search-engine
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+service:
+  type: ClusterIP
+  port: 8080
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: vse.local
+      paths:
+        - path: /
+          pathType: Prefix
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+env:
+  RUST_LOG: info
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4317
+
+persistence:
+  enabled: true
+  size: 1Gi

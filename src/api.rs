@@ -18,7 +18,7 @@
 //! - Uses the persistent engine when started via `serve`
 
 use axum::{
-    extract::{Json, State},
+    extract::{Json, Query, State},
     http::{Request, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Response},
@@ -36,7 +36,7 @@ use tower_governor::{governor::GovernorConfigBuilder, key_extractor::SmartIpKeyE
 use sled;
 use tracing::{info, instrument};
 
-use crate::{collection::Collections, EngineConfig, SearchResult, embed};
+use crate::{collection::Collections, quantization::quantization_error, EngineConfig, SearchResult, embed};
 
 // ============================================================================
 // State
@@ -87,6 +87,12 @@ pub struct SearchRequest {
 
 fn default_limit() -> usize {
     10
+}
+
+#[derive(Debug, Deserialize, Default)]
+pub struct StatsQuery {
+    #[serde(default)]
+    pub collection: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -165,6 +171,12 @@ pub async fn ingest_handler(
     let embedding = embed(&payload.text)?;
     let metadata = payload.metadata.unwrap_or(serde_json::Value::Null);
 
+    // Phase 7: observe quantization error for this vector
+    let qerr = quantization_error(&embedding);
+    QUANT_ERROR_HISTOGRAM
+        .with_label_values(&[&payload.collection])
+        .observe(qerr);
+
     let mut cols = state.collections.lock().await;
     let engine = cols.get_or_create(&payload.collection, EngineConfig::default())?;
     let id = engine.ingest(payload.text, embedding, metadata)?;
@@ -172,7 +184,7 @@ pub async fn ingest_handler(
 
     info!(document_id = %id, collection = %payload.collection, "ingested via API");
     INGEST_COUNTER.with_label_values(&[&payload.collection]).inc();
-    DOCS_GAUGE.with_label_values(&[&payload.collection]).set(engine.len() as i64); // update gauge after ingest
+    DOCS_GAUGE.with_label_values(&[&payload.collection]).set(engine.len() as i64);
 
     Ok(Json(serde_json::json!({
         "id": id,
@@ -199,10 +211,19 @@ pub async fn batch_ingest_handler(
         let embedding = embed(&doc.text)?;
         let metadata = doc.metadata.unwrap_or(serde_json::Value::Null);
 
+        // Phase 7: per-item quant error + metrics
+        let qerr = quantization_error(&embedding);
+        QUANT_ERROR_HISTOGRAM
+            .with_label_values(&[&doc.collection])
+            .observe(qerr);
+
         let mut cols = state.collections.lock().await;
         let engine = cols.get_or_create(&doc.collection, EngineConfig::default())?;
         let id = engine.ingest(doc.text, embedding, metadata)?;
         ids.push(id);
+        // update per-collection gauge after each (small batches ok)
+        DOCS_GAUGE.with_label_values(&[&doc.collection]).set(engine.len() as i64);
+        INGEST_COUNTER.with_label_values(&[&doc.collection]).inc();
     }
 
     info!(count = ids.len(), "batch ingested via API");
@@ -244,7 +265,15 @@ pub async fn search_handler(
     };
     drop(timer); // ends timer
     SEARCH_COUNTER.with_label_values(&[&payload.collection, &payload.hybrid.to_string()]).inc();
-    DOCS_GAUGE.with_label_values(&[&payload.collection]).set(engine.len() as i64);
+    let n = engine.len() as i64;
+    DOCS_GAUGE.with_label_values(&[&payload.collection]).set(n);
+
+    // Phase 7: keep HNSW gauges fresh on search path too
+    let st = engine.stats();
+    HNSW_NUM_VECTORS_GAUGE.with_label_values(&[&payload.collection]).set(st.num_documents as i64);
+    HNSW_MAX_CONNECTIONS_GAUGE.with_label_values(&[&payload.collection]).set(st.hnsw_max_nb_connection as i64);
+    HNSW_EF_CONSTRUCTION_GAUGE.with_label_values(&[&payload.collection]).set(st.hnsw_ef_construction as i64);
+    HNSW_EF_SEARCH_GAUGE.with_label_values(&[&payload.collection]).set(st.hnsw_default_ef_search as i64);
 
     if let Some(min) = payload.min_score {
         results.retain(|r| r.score >= min);
@@ -268,11 +297,23 @@ pub async fn search_handler(
     }))
 }
 
-pub async fn stats_handler(State(state): State<AppState>) -> Json<StatsResponse> {
+pub async fn stats_handler(
+    State(state): State<AppState>,
+    Query(q): Query<StatsQuery>,
+) -> Json<StatsResponse> {
+    let coll = q.collection.unwrap_or_else(|| "default".to_string());
     let mut cols = state.collections.lock().await;
-    let engine = cols.get_or_create("default", EngineConfig::default()).unwrap();
+    let engine = cols.get_or_create(&coll, EngineConfig::default()).unwrap();
     let stats = engine.stats();
-    DOCS_GAUGE.with_label_values(&["default"]).set(engine.len() as i64);
+    let n = engine.len() as i64;
+
+    DOCS_GAUGE.with_label_values(&[&coll]).set(n);
+
+    // Phase 7: HNSW-specific gauges (per collection)
+    HNSW_NUM_VECTORS_GAUGE.with_label_values(&[&coll]).set(stats.num_documents as i64);
+    HNSW_MAX_CONNECTIONS_GAUGE.with_label_values(&[&coll]).set(stats.hnsw_max_nb_connection as i64);
+    HNSW_EF_CONSTRUCTION_GAUGE.with_label_values(&[&coll]).set(stats.hnsw_ef_construction as i64);
+    HNSW_EF_SEARCH_GAUGE.with_label_values(&[&coll]).set(stats.hnsw_default_ef_search as i64);
 
     Json(StatsResponse {
         num_documents: stats.num_documents,
@@ -328,6 +369,58 @@ static DOCS_GAUGE: std::sync::LazyLock<prometheus::IntGaugeVec> =
         .expect("failed to register docs gauge")
     });
 
+// Phase 7: HNSW-specific gauges
+static HNSW_NUM_VECTORS_GAUGE: std::sync::LazyLock<prometheus::IntGaugeVec> =
+    std::sync::LazyLock::new(|| {
+        prometheus::register_int_gauge_vec!(
+            "hnsw_num_vectors",
+            "Number of vectors in HNSW index per collection",
+            &["collection"]
+        )
+        .expect("failed to register hnsw vectors gauge")
+    });
+
+static HNSW_MAX_CONNECTIONS_GAUGE: std::sync::LazyLock<prometheus::IntGaugeVec> =
+    std::sync::LazyLock::new(|| {
+        prometheus::register_int_gauge_vec!(
+            "hnsw_max_connections",
+            "Max connections (M) in HNSW per collection",
+            &["collection"]
+        )
+        .expect("failed to register hnsw M gauge")
+    });
+
+static HNSW_EF_CONSTRUCTION_GAUGE: std::sync::LazyLock<prometheus::IntGaugeVec> =
+    std::sync::LazyLock::new(|| {
+        prometheus::register_int_gauge_vec!(
+            "hnsw_ef_construction",
+            "efConstruction parameter in HNSW per collection",
+            &["collection"]
+        )
+        .expect("failed to register hnsw ef_construction gauge")
+    });
+
+static HNSW_EF_SEARCH_GAUGE: std::sync::LazyLock<prometheus::IntGaugeVec> =
+    std::sync::LazyLock::new(|| {
+        prometheus::register_int_gauge_vec!(
+            "hnsw_ef_search",
+            "Default efSearch parameter in HNSW per collection",
+            &["collection"]
+        )
+        .expect("failed to register hnsw ef_search gauge")
+    });
+
+// Phase 7: Quant error histogram (per collection)
+static QUANT_ERROR_HISTOGRAM: std::sync::LazyLock<prometheus::HistogramVec> =
+    std::sync::LazyLock::new(|| {
+        prometheus::register_histogram_vec!(
+            "quant_error",
+            "Quantization error (RMS) histogram",
+            &["collection"]
+        )
+        .expect("failed to register quant error histogram")
+    });
+
 pub async fn metrics_handler() -> impl IntoResponse {
     let encoder = TextEncoder::new();
     let metric_families = prometheus::gather();
@@ -376,7 +469,7 @@ pub struct OpenAIUsage {
 }
 
 pub async fn openai_embeddings(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
     Json(payload): Json<OpenAIEmbedRequest>,
 ) -> Result<Json<OpenAIEmbedResponse>, ApiError> {
     let mut inputs: Vec<String> = vec![];

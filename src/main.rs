@@ -16,6 +16,7 @@ use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 use tracing::{info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+
 use vector_search_engine::{embed, EngineConfig, EMBED_DIM};
 
 #[derive(Parser)]
@@ -117,10 +118,41 @@ fn init_logging(verbose: bool) {
         .with_target(false)
         .with_thread_ids(false);
 
-    tracing_subscriber::registry()
+    let registry = tracing_subscriber::registry()
         .with(filter)
-        .with(fmt_layer)
-        .init();
+        .with(fmt_layer);
+
+    // Phase 7: Optional OpenTelemetry for traces (Jaeger, SigNoz, etc.)
+    // Set OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317 to enable
+    if let Ok(otel_endpoint) = std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT") {
+        if !otel_endpoint.is_empty() {
+            use opentelemetry_otlp::WithExportConfig;
+            use tracing_opentelemetry::layer;
+
+            let tracer = opentelemetry_otlp::new_pipeline()
+                .tracing()
+                .with_exporter(
+                    opentelemetry_otlp::new_exporter()
+                        .tonic()
+                        .with_endpoint(otel_endpoint),
+                )
+                .with_trace_config(
+                    opentelemetry_sdk::trace::config()
+                        .with_resource(opentelemetry_sdk::Resource::new(vec![
+                            opentelemetry::KeyValue::new("service.name", "vector-search-engine"),
+                        ])),
+                )
+                .install_batch(opentelemetry_sdk::runtime::Tokio)
+                .expect("Failed to install OTEL tracer");
+
+            let otel_layer = layer().with_tracer(tracer);
+
+            registry.with(otel_layer).init();
+            return;
+        }
+    }
+
+    registry.init();
 }
 
 fn main() -> anyhow::Result<()> {

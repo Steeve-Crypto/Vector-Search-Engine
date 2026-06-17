@@ -1,0 +1,98 @@
+# Full docker-compose for Phase 7: app + observability stack
+# Supports Jaeger (traces), Prometheus/VictoriaMetrics (metrics), Grafana/Perses (dashboards)
+# For SigNoz: use their official docker-compose and point OTEL_EXPORTER_OTLP_ENDPOINT to SigNoz
+# For OpenObserve/HyperDX: similar, they accept OTEL.
+# Run: docker-compose -f docker-compose.yml -f docker-compose.observability.yml up --build
+
+version: '3.8'
+
+services:
+  vector-search-engine:
+    build: .
+    image: vector-search-engine:latest
+    container_name: vse
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/app/data
+      - ./models:/app/models
+    environment:
+      - RUST_LOG=info
+      - RUST_BACKTRACE=1
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317  # for traces to Jaeger/SigNoz/etc
+    restart: unless-stopped
+    command: >
+      sh -c "
+        vector-search-engine download-model || true &&
+        exec vector-search-engine serve --host 0.0.0.0 --port 8080
+      "
+    depends_on:
+      - jaeger
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  # Jaeger for traces (works with SigNoz, HyperDX, OpenObserve too via OTEL)
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: jaeger
+    ports:
+      - "16686:16686"  # Jaeger UI
+      - "4317:4317"    # OTLP gRPC
+      - "4318:4318"    # OTLP HTTP
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+
+  # Prometheus for scraping /metrics (or replace with VictoriaMetrics)
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    depends_on:
+      - vector-search-engine
+
+  # Grafana for dashboards (or Perses)
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./observability/grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml
+    depends_on:
+      - prometheus
+      - jaeger
+
+  # Optional: VictoriaMetrics as Prometheus alternative (high perf)
+  # victoriametrics:
+  #   image: victoriametrics/victoria-metrics:latest
+  #   ports:
+  #     - "8428:8428"
+  #   command: -promscrape.config=/etc/prometheus/prometheus.yml -storageDataPath=/vm-data
+  #   volumes:
+  #     - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml
+  #     - vm-data:/vm-data
+
+  # Optional: Perses as Grafana alternative for Prometheus/Victoria
+  # perses:
+  #   image: perses/perses:latest
+  #   ports:
+  #     - "8081:8080"
+  #   volumes:
+  #     - ./observability/perses-config.yaml:/etc/perses/config.yaml
+
+volumes:
+  prometheus-data:
+  grafana-data:
+  # vm-data:

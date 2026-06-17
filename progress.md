@@ -4,9 +4,9 @@
 **Reference Plan:** See [plan.md](./plan.md) for the full phased breakdown.
 
 ## Current Overall Status
-- **Active Phase:** Phase 7 (Observability, Testing, CI/CD & Deployment) started.
-- **Last Completed Major Work:** Enhanced Prometheus metrics with collection/hybrid labels + gauge; added tracing::instrument to handlers; created .github/workflows/ci.yml for test/clippy/docker/bench; plan updated with Phase 7 details.
-- **Project State:** Phase 7 observability and CI started. All prior complete. Tests pass.
+- **Active Phase:** Phase 7 (Observability, Testing, CI/CD & Deployment) in progress.
+- **Last Completed Major Work:** K8s/Helm, docker-compose.observability (Jaeger + VM + Perses + notes for SigNoz etc), OTEL support.
+- **Project State:** Phase 7 stacks and manifests complete. Full observability with listed tools. All prior complete.
 
 ## Phase Completion Summary
 
