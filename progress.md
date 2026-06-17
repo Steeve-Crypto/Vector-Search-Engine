@@ -22,7 +22,7 @@
 | 7     | Observability, Testing, CI/CD & Deployment | ✅ Done | Enhanced Prometheus (HNSW gauges + quant_error histograms per collection), OTEL, full CI (test+clippy+docker+actual benches for regression + load-test job using scripts/load_test.sh), k8s/helm, docker observability stacks | Phase 7 complete. |
 | 8     | Advanced PQ + gRPC + UI Viz | ✅ Done | Real k-means PQ (train/quant/dequant + sled default), tonic gRPC (feature-gated), Chart.js score viz + enhanced UI, HNSW dump/load integration | All items complete. |
 | 9     | Scalability, Advanced Persistence, and Ecosystem | ✅ Done | All items including initial RAG | Done |
-| 10    | RAG Adapter and Integrations | ✅ Done | Streaming chat, configurable templates, standalone bin, Python ex, /v1/retrieve helper | All of the above implemented. |
+| 10    | RAG Adapter and Integrations | ✅ Done | Streaming, configurable templates (RAG_*_TEMPLATE, TOP_K), standalone bin, Python ex, /v1/retrieve + lib helper, citations [n], re-rank stub, enhanced RAG | All Phase 10 items. |
 
 ## Detailed Progress Within Phase 1 (Core Engine)
 

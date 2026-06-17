@@ -782,22 +782,30 @@ pub async fn openai_chat_completions(
         .collection
         .unwrap_or_else(|| "default".to_string());
 
+    let top_k: usize = std::env::var("RAG_TOP_K")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(5);
+
     // Retrieve context using the vector engine
     let mut cols = state.collections.lock().await;
     let engine = cols.get_or_create(&collection, EngineConfig::default())?;
 
     let mut context_docs = vec![];
+    let mut citations = vec![];
     if !query.is_empty() {
         // Use semantic search (can be hybrid if desired)
-        let results = if query.split_whitespace().count() > 3 {
+        let mut results = if query.split_whitespace().count() > 3 {
             // heuristic: use hybrid for longer queries
-            engine.hybrid_search(&query, 5)?
+            engine.hybrid_search(&query, top_k)?
         } else {
             let emb = embed(&query)?;
-            engine.search(&emb, 5)?
+            engine.search(&emb, top_k)?
         };
-        for r in results {
-            context_docs.push(format!("- {}", r.text));
+        results = re_rank_stub(results); // Phase 10 stub
+        for (i, r) in results.iter().enumerate() {
+            context_docs.push(format!("- [{}]: {}", i+1, r.text));
+            citations.push(format!("Source {}: {}", i+1, r.id));
         }
     }
 
@@ -872,6 +880,16 @@ pub async fn openai_chat_completions(
         let body: Value = llm_resp.json().await.map_err(|e| ApiError::Internal(format!("Failed to parse LLM response: {}", e)))?;
         return Ok(Json(body).into_response());
     }
+}
+
+// Phase 10 re-ranking stub (simple score boost for now)
+fn re_rank_stub(mut results: Vec<SearchResult>) -> Vec<SearchResult> {
+    // Stub: boost longer docs or by score, in real would use cross-encoder
+    for r in &mut results {
+        r.score = (r.score + (r.text.len() as f32 / 1000.0)).min(1.0);
+    }
+    results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    results
 }
 
 // Retrieval-only helper for other frameworks (Phase 9)
