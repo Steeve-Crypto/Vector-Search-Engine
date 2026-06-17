@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vector Search Engine • Demo</title>
+    <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=Space+Grotesk:wght@500;600&amp;display=swap');
+        
+        :root {
+            --primary: #3b82f6;
+        }
+        
+        body {
+            font-family: 'Inter', system_ui, sans-serif;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 2rem;
+            background: #0f172a;
+            color: #e2e8f0;
+            line-height: 1.6;
+        }
+        
+        h1, h2 {
+            font-family: 'Space Grotesk', system_ui, sans-serif;
+            font-weight: 600;
+        }
+        
+        .header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 2rem;
+            border-bottom: 1px solid #334155;
+            padding-bottom: 1rem;
+        }
+        
+        .card {
+            background: #1e2937;
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+            border: 1px solid #334155;
+        }
+        
+        input, textarea {
+            width: 100%;
+            padding: 0.75rem 1rem;
+            border: 1px solid #475569;
+            border-radius: 8px;
+            background: #0f172a;
+            color: #e2e8f0;
+            font-size: 0.95rem;
+            margin-bottom: 0.75rem;
+        }
+        
+        button {
+            background: var(--primary);
+            color: white;
+            border: none;
+            padding: 0.6rem 1.25rem;
+            border-radius: 8px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        button:hover {
+            background: #2563eb;
+            transform: translateY(-1px);
+        }
+        
+        .result {
+            background: #0f172a;
+            padding: 1rem;
+            border-radius: 8px;
+            margin-top: 1rem;
+            border: 1px solid #334155;
+        }
+        
+        .score {
+            font-family: monospace;
+            background: #1e2937;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.85rem;
+        }
+        
+        .score-bar {
+            height: 6px;
+            background: linear-gradient(90deg, #3b82f6, #60a5fa);
+            border-radius: 3px;
+            margin-top: 4px;
+        }
+        
+        .result-item {
+            margin-bottom: 0.75rem;
+            padding-bottom: 0.75rem;
+            border-bottom: 1px solid #334155;
+        }
+        
+        .result-item:last-child {
+            border-bottom: none;
+            margin-bottom: 0;
+            padding-bottom: 0;
+        }
+        
+        .status {
+            padding: 0.25rem 0.6rem;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 500;
+        }
+        
+        .success { background: #166534; color: #86efac; }
+        
+        pre {
+            background: #0f172a;
+            padding: 1rem;
+            border-radius: 8px;
+            overflow-x: auto;
+            font-size: 0.8rem;
+        }
+        
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1.5rem;
+        }
+        
+        @media (max-width: 768px) {
+            .grid { grid-template-columns: 1fr; }
+        }
+        
+        .label {
+            font-size: 0.8rem;
+            color: #64748b;
+            margin-bottom: 0.25rem;
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div>
+            <h1 style="margin:0; font-size: 2rem;">Vector Search Engine</h1>
+            <p style="margin: 0.25rem 0 0; color: #64748b;">Phase 4 Demo • HNSW + ONNX + Axum</p>
+        </div>
+        <div>
+            <a href="/stats" style="color: #64748b; text-decoration: none; font-size: 0.9rem;">Stats →</a>
+        </div>
+    </div>
+
+    <div class="grid">
+        <!-- Ingest -->
+        <div class="card">
+            <h2 style="margin-top:0; font-size:1.25rem;">Ingest Document</h2>
+            
+            <form hx-post="/ingest" hx-target="#ingest-result" hx-swap="innerHTML" hx-on::after-request="this.reset()">
+                <label class="label">Text</label>
+                <textarea name="text" rows="3" required placeholder="Enter your document text here..."></textarea>
+                
+                <label class="label">Metadata (JSON)</label>
+                <input type="text" name="metadata" value='{"source": "demo-ui"}' placeholder='{"source": "blog"}'>
+                
+                <button type="submit">Ingest →</button>
+            </form>
+            
+            <div id="ingest-result" style="margin-top: 1rem;"></div>
+        </div>
+
+        <!-- Search -->
+        <div class="card">
+            <h2 style="margin-top:0; font-size:1.25rem;">Semantic Search</h2>
+            
+            <form hx-post="/search" hx-target="#search-result" hx-swap="innerHTML">
+                <label class="label">Query</label>
+                <input type="text" name="query" required placeholder="What are you looking for?">
+                
+                <label class="label">Limit</label>
+                <input type="number" name="limit" value="5" min="1" max="50" style="width: 80px;">
+                
+                <button type="submit" style="margin-top: 0.5rem;">Search</button>
+            </form>
+            
+            <div id="search-result" style="margin-top: 1rem;"></div>
+        </div>
+    </div>
+
+    <!-- Stats -->
+    <div class="card">
+        <h2 style="margin-top:0;">Engine Stats</h2>
+        <div hx-get="/stats" hx-trigger="load, every 30s" hx-swap="innerHTML">
+            Loading stats...
+        </div>
+    </div>
+
+    <script>
+        // Client-side result rendering for nice UI polish (Phase 4)
+        function renderIngestResult(data) {
+            const el = document.getElementById('ingest-result');
+            if (data.id) {
+                el.innerHTML = `
+                    <div class="result">
+                        <span class="status success">✓ Ingested</span>
+                        <div style="margin-top: 0.5rem; font-family: monospace; font-size: 0.8rem;">ID: ${data.id}</div>
+                    </div>
+                `;
+            } else {
+                el.innerHTML = `<div class="result">Error: ${JSON.stringify(data)}</div>`;
+            }
+        }
+
+        function renderSearchResult(data) {
+            const el = document.getElementById('search-result');
+            if (data.results && data.results.length > 0) {
+                let html = `<div class="result"><strong>Top ${data.count} results:</strong>`;
+                data.results.forEach((r, i) => {
+                    const pct = Math.round(r.score * 100);
+                    html += `
+                        <div class="result-item">
+                            <div style="display:flex; justify-content:space-between; font-size:0.9rem;">
+                                <span>#${i+1} ${r.text.substring(0, 80)}${r.text.length > 80 ? '...' : ''}</span>
+                                <span class="score">${r.score.toFixed(4)}</span>
+                            </div>
+                            <div class="score-bar" style="width: ${pct}%;"></div>
+                            ${r.metadata && Object.keys(r.metadata).length ? `<div style="font-size:0.7rem; color:#64748b; margin-top:2px;">${JSON.stringify(r.metadata)}</div>` : ''}
+                        </div>
+                    `;
+                });
+                html += '</div>';
+                el.innerHTML = html;
+            } else {
+                el.innerHTML = `<div class="result">No results found.</div>`;
+            }
+        }
+
+        // Hook into HTMX to render nicely
+        document.body.addEventListener('htmx:afterRequest', function(evt) {
+            const targetId = evt.detail.target.id;
+            if (targetId === 'ingest-result') {
+                try {
+                    const data = JSON.parse(evt.detail.xhr.responseText);
+                    renderIngestResult(data);
+                } catch(e) { /* fallback to raw */ }
+            }
+            if (targetId === 'search-result') {
+                try {
+                    const data = JSON.parse(evt.detail.xhr.responseText);
+                    renderSearchResult(data);
+                } catch(e) { /* fallback */ }
+            }
+        });
+
+        // Make stats pretty
+        document.body.addEventListener('htmx:afterSwap', function(evt) {
+            const html = evt.target.innerHTML;
+            if (html.includes('num_documents')) {
+                try {
+                    const data = JSON.parse(html);
+                    evt.target.innerHTML = `
+                        <div style="display: flex; gap: 2rem; font-family: monospace; font-size: 0.9rem;">
+                            <div><strong>${data.num_documents}</strong> docs</div>
+                            <div>${data.embedding_dim}d</div>
+                            <div style="color:#64748b; font-size:0.75rem;">${data.index_type}</div>
+                        </div>
+                    `;
+                } catch(e) {}
+            }
+        });
+
+        // Keyboard shortcut for search
+        document.addEventListener('keydown', function(e) {
+            if (e.key === '/' && document.activeElement.tagName === 'BODY') {
+                e.preventDefault();
+                const searchInput = document.querySelector('input[name="query"]');
+                if (searchInput) searchInput.focus();
+            }
+        });
+    </script>
+</body>
+</html>

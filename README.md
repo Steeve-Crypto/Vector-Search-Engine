@@ -70,6 +70,32 @@ curl -X POST http://localhost:8080/search \
   -d '{"query": "hello", "limit": 3}'
 ```
 
+### Docker (Phase 4)
+
+Build and run with persistence:
+
+```bash
+# Build image
+docker build -t vector-search-engine .
+
+# Run (model auto-downloads on first /ingest or /search if not present)
+docker run -p 8080:8080 \
+  -v $(pwd)/data:/app/data \
+  -v $(pwd)/models:/app/models \
+  vector-search-engine
+
+# Or with docker-compose (recommended)
+docker-compose up --build
+```
+
+The container:
+- Runs the API on port 8080
+- Persists data in mounted `./data`
+- Downloads the ONNX model automatically if `./models` is empty (first request will trigger it)
+- Includes healthcheck on `/health`
+
+See `docker-compose.yml` and `Dockerfile` for details.
+
 ### Architecture (high-level)
 
 ```
@@ -83,7 +109,7 @@ curl -X POST http://localhost:8080/search \
                  (text → 384d norm vec)     (ANN cosine search)       (docs + snapshots)
 ```
 
-See later phases for full details.
+See `plan.md` for the full phased plan and `progress.md` for current status.
 
 ## Development
 

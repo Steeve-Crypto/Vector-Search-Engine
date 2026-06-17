@@ -4,9 +4,9 @@
 **Reference Plan:** See [plan.md](./plan.md) for the full phased breakdown.
 
 ## Current Overall Status
-- **Active Phase:** Phase 3 complete. Next logical: Phase 4 (Polish) or full demo.
-- **Last Completed Major Work:** Phase 3 - Axum REST API (ingest/search/stats/metrics/health)
-- **Project State:** Complete production-ready API on top of all previous phases (embedder, HNSW, sled persistence). `cargo run -- serve` works. Verified end-to-end with curl. All tests pass.
+- **Active Phase:** Phase 4 complete.
+- **Last Completed Major Work:** All Phase 4 items (in order): simple API key auth, proper rate limiting, better Prometheus metrics, docker-compose with pre-download, benchmark improvements, UI polish (score bars + visualization), config via env/clap.
+- **Project State:** Production-ready. Docker + UI demo works. Auth/rate limiting active. Benchmarks and metrics enhanced. Full stack complete.
 
 ## Phase Completion Summary
 
@@ -16,7 +16,7 @@
 | 1     | Core Engine                   | ✅ Done        | Real Embedder + HNSW wrapper + integration into engine + tests | Embedder + HNSW complete. See detailed section. |
 | 2     | Persistence & Storage         | ✅ Core Done | sled for documents (JSON serialized) + HNSW rebuild on load from embeddings; survives restarts | Implemented open_persistent + auto-write on ingest. Rebuild is reliable. Graph snapshot via hnswio available but not primary yet. |
 | 3     | API Layer                     | ✅ Done    | Full Axum routes (POST /ingest + /batch, POST /search, GET /stats /health /metrics), JSON models, error handling, CORS+trace middleware, metrics | CLI `serve` now fully functional with persistent engine |
-| 4     | Polish & Production           | ⏳ Pending | Docker, UI (HTMX/static), tracing + Prometheus, rate limits, config | - |
+| 4     | Polish & Production           | ✅ Done    | All sub-items: API key auth, rate limiting fn, improved metrics, docker with pre-download, benches, UI polish, env/clap config | Full Phase 4 complete. See details in code and README. |
 | 5     | Documentation & Demo          | ⏳ Pending | Full README + Mermaid, benchmarks, load-test guide, sample data, deployment | Partial README exists |
 | 6     | Advanced (future)             | ⏳ Future  | Hybrid, quantization, filtering, gRPC, etc.          | Out of MVP scope |
 

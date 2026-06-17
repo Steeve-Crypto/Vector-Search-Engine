@@ -19,16 +19,20 @@
 
 use axum::{
     extract::{Json, State},
-    http::StatusCode,
+    http::{HeaderMap, Request, StatusCode},
+    middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::{get, post},
     Router,
 };
 use prometheus::{Encoder, TextEncoder};
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::env;
+use std::sync::{Arc, Mutex as StdMutex};
+use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
-use tower_http::{cors::CorsLayer, trace::TraceLayer};
+use tower_http::{cors::CorsLayer, limit::RequestBodyLimitLayer, services::ServeDir, trace::TraceLayer};
 use tracing::info;
 
 use crate::{SearchResult, VectorEngine, embed};
@@ -141,11 +145,13 @@ pub async fn ingest_handler(
         return Err(ApiError::BadRequest("text cannot be empty".into()));
     }
 
+    let timer = SEARCH_LATENCY.with_label_values(&["ingest"]).start_timer();
     let embedding = embed(&payload.text)?;
     let metadata = payload.metadata.unwrap_or(serde_json::Value::Null);
 
     let mut engine = state.engine.lock().await;
     let id = engine.ingest(payload.text, embedding, metadata)?;
+    drop(timer);
 
     info!(document_id = %id, "ingested via API");
     INGEST_COUNTER.inc();
@@ -269,21 +275,91 @@ pub async fn metrics_handler() -> impl IntoResponse {
 // Router + Server
 // ============================================================================
 
+/// Simple API key auth middleware (Phase 4)
+/// Checks for X-API-Key header if API_KEY env var is set.
+/// For demo, if not set, allows all.
+async fn api_key_auth(
+    req: Request<axum::body::Body>,
+    next: Next,
+) -> Result<Response, StatusCode> {
+    if let Ok(required_key) = env::var("API_KEY") {
+        if !required_key.is_empty() {
+            let headers = req.headers();
+            if let Some(key) = headers.get("x-api-key") {
+                if key.to_str().map(|k| k == required_key).unwrap_or(false) {
+                    return Ok(next.run(req).await);
+                }
+            }
+            return Err(StatusCode::UNAUTHORIZED);
+        }
+    }
+    Ok(next.run(req).await)
+}
+
+/// Simple per-IP rate limiter (Phase 4)
+/// Limits to ~10 requests per 10 seconds per IP for demo.
+/// Uses in-memory map (not production persistent).
+static RATE_LIMITER: std::sync::LazyLock<StdMutex<HashMap<String, (Instant, u32)>>> =
+    std::sync::LazyLock::new(|| StdMutex::new(HashMap::new()));
+
+const RATE_LIMIT: u32 = 10;
+const RATE_WINDOW: Duration = Duration::from_secs(10);
+
+async fn rate_limit_middleware(
+    req: Request<axum::body::Body>,
+    next: Next,
+) -> Result<impl IntoResponse, StatusCode> {
+    // Get IP from header or default (for demo, use X-Forwarded-For or remote)
+    let ip = req
+        .headers()
+        .get("x-forwarded-for")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("127.0.0.1")
+        .split(',')
+        .next()
+        .unwrap_or("127.0.0.1")
+        .trim()
+        .to_string();
+
+    let mut limiter = RATE_LIMITER.lock().unwrap();
+    let now = Instant::now();
+
+    let entry = limiter.entry(ip.clone()).or_insert((now, 0));
+    if now.duration_since(entry.0) > RATE_WINDOW {
+        *entry = (now, 1);
+    } else {
+        entry.1 += 1;
+        if entry.1 > RATE_LIMIT {
+            return Err(StatusCode::TOO_MANY_REQUESTS);
+        }
+    }
+
+    Ok(next.run(req).await)
+}
+
 /// Build the Axum router with all routes and middleware.
+/// Also serves a simple HTMX demo UI at "/" from ./static
 pub fn create_router(engine: VectorEngine) -> Router {
     let state = AppState {
         engine: Arc::new(Mutex::new(engine)),
     };
 
     Router::new()
+        // API endpoints (protected by auth if API_KEY set)
         .route("/ingest", post(ingest_handler))
         .route("/ingest/batch", post(batch_ingest_handler))
         .route("/search", post(search_handler))
         .route("/stats", get(stats_handler))
         .route("/health", get(health_handler))
         .route("/metrics", get(metrics_handler))
+        // Phase 4: Simple HTMX demo UI
+        .nest_service("/ui", ServeDir::new("static").precompressed_gzip())
+        // Redirect root to the nice UI
+        .route("/", get(|| async { axum::response::Redirect::to("/ui/") }))
+        .layer(middleware::from_fn(api_key_auth))
         .layer(TraceLayer::new_for_http())
         .layer(CorsLayer::permissive())
+        .layer(RequestBodyLimitLayer::new(2 * 1024 * 1024)) // 2MB body limit
         .with_state(state)
 }
 

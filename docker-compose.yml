@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  vector-search-engine:
+    build: .
+    image: vector-search-engine:latest
+    container_name: vse
+    ports:
+      - "8080:8080"
+    volumes:
+      # Persist data and models outside the container
+      - ./data:/app/data
+      - ./models:/app/models
+    environment:
+      - RUST_LOG=info
+      - RUST_BACKTRACE=1
+    restart: unless-stopped
+    # Pre-download model if not present in volume (Phase 4)
+    command: >
+      sh -c "
+        vector-search-engine download-model || true &&
+        exec vector-search-engine serve --host 0.0.0.0 --port 8080
+      "
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s

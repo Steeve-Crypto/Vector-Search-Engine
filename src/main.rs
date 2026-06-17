@@ -75,13 +75,17 @@ enum Commands {
 
     /// Start the HTTP API server (full Axum implementation)
     Serve {
-        /// Host to bind to
-        #[arg(long, default_value = "127.0.0.1")]
+        /// Host to bind to (env: HOST)
+        #[arg(long, env = "HOST", default_value = "127.0.0.1")]
         host: String,
 
-        /// Port to bind to
-        #[arg(short, long, default_value_t = 8080)]
+        /// Port to bind to (env: PORT)
+        #[arg(short, long, env = "PORT", default_value_t = 8080)]
         port: u16,
+
+        /// Data directory for persistence (env: DATA_DIR)
+        #[arg(long, env = "DATA_DIR", default_value = "data")]
+        data_dir: String,
     },
 
     /// Generate a real embedding for a piece of text (debug / verification)
@@ -193,11 +197,12 @@ fn main() -> anyhow::Result<()> {
             println!("(HNSW ANN mode)");
         }
 
-        Commands::Serve { host, port } => {
+        Commands::Serve { host, port, data_dir } => {
             println!("Starting Axum server on http://{}:{} ...", host, port);
+            println!("Using data dir: {}", data_dir);
             info!("loading persistent engine for server...");
-            let data_dir = std::path::PathBuf::from("data");
-            let engine = vector_search_engine::VectorEngine::open_persistent(&data_dir, EngineConfig::default())
+            let data_path = std::path::PathBuf::from(data_dir);
+            let engine = vector_search_engine::VectorEngine::open_persistent(&data_path, EngineConfig::default())
                 .unwrap_or_else(|e| {
                     warn!(error = %e, "failed to open persistent store, starting fresh in-memory for server");
                     vector_search_engine::VectorEngine::new(EngineConfig::default())

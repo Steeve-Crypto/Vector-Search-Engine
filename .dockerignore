@@ -1,0 +1,27 @@
+# Rust build artifacts
+target/
+**/*.rs.bk
+
+# Data and models (will be volumes or downloaded at runtime)
+data/
+models/
+!models/.gitkeep
+
+# Git and IDE
+.git/
+.gitignore
+.idea/
+.vscode/
+*.swp
+
+# Logs and temp
+*.log
+/tmp/
+
+# Docker
+Dockerfile
+.dockerignore
+
+# Misc
+Cargo.lock  # optional, but usually include for reproducible builds
+# Actually keep Cargo.lock for reproducible builds in Docker
