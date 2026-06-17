@@ -9,6 +9,7 @@ It lets you ingest natural language documents, generate high-quality embeddings 
 - **Hybrid search** — combines vector similarity with keyword overlap for best-of-both-worlds results.
 - **Multi-tenancy** — named collections allow isolated indexes (great for SaaS or multi-team use).
 - **Memory-efficient storage** — scalar quantization + real Product Quantization (k-means trained codebooks) dramatically reduces storage footprint while keeping search quality high.
+- **Predictable & low costs** — fully local embeddings and quantization mean zero per-token fees and fixed infrastructure costs only.
 - **Dual APIs** — full-featured REST (Axum) + gRPC (tonic).
 - **Production ready** — persistence (sled), observability (OpenTelemetry + Prometheus-style metrics), Docker, Kubernetes, Helm, load testing, and CI with benchmark regression.
 - **Small & auditable** — written in safe Rust with minimal dependencies.
@@ -40,6 +41,7 @@ These workloads benefit from:
 - **Hybrid Search**: Vector + keyword (0.7 / 0.3 weighting with over-fetch)
 - **Multi-tenancy**: Named collections with isolated indexes
 - **Quantization**: Scalar + real Product Quantization (k-means trained)
+- **Predictable Costs**: Fully local embeddings + quantization eliminate per-token and per-query usage fees from third-party services
 - **APIs**: REST + gRPC + OpenAI-compatible embeddings endpoint
 - **Storage**: sled persistence (documents + quantized vectors)
 - **Observability**: OpenTelemetry traces + Prometheus-compatible metrics
@@ -179,6 +181,7 @@ flowchart TD
     B --> H
 ```
 
+See [useCase.md](./useCase.md) for detailed real-world use cases and cost analysis.  
 See `plan.md` for the phased development plan and `progress.md` for implementation status.
 
 ## Sample Dataset Loader & Evaluation Harness
