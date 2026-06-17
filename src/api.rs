@@ -182,6 +182,11 @@ pub async fn ingest_handler(
     info!(document_id = %id, collection = %payload.collection, "ingested via API");
     inc_ingest(&payload.collection);
     set_docs_gauge(&payload.collection, engine.len() as i64);
+    let st = engine.stats();
+    set_hnsw_gauge("num_vectors", &payload.collection, st.num_documents as i64);
+    set_hnsw_gauge("max_connections", &payload.collection, st.hnsw_max_nb_connection as i64);
+    set_hnsw_gauge("ef_construction", &payload.collection, st.hnsw_ef_construction as i64);
+    set_hnsw_gauge("ef_search", &payload.collection, st.hnsw_default_ef_search as i64);
 
     Ok(Json(serde_json::json!({
         "id": id,
