@@ -724,9 +724,9 @@ pub async fn openai_embeddings(
 // Router + Server
 // ============================================================================
 
-/// Simple API key auth middleware (Phase 4)
+/// Simple API key auth middleware (Phase 4/9)
 /// Checks for X-API-Key header if API_KEY env var is set.
-/// For demo, if not set, allows all.
+/// Phase 9: per-collection keys possible via extension; mTLS for gRPC in tonic.
 async fn api_key_auth(
     req: Request<axum::body::Body>,
     next: Next,
