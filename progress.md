@@ -5,7 +5,7 @@
 
 ## Current Overall Status
 - **Active Phase:** Phase 7 (Observability, Testing, CI/CD & Deployment) in progress.
-- **Last Completed Major Work:** K8s/Helm, docker-compose.observability (Jaeger + VM + Perses + notes for SigNoz etc), OTEL support.
+- **Last Completed Major Work:** More metrics (HNSW gauges + quant error hist), Load tests (scripts + CI job), Benchmark regression in CI (reduced real bench runs). Git commits after each.
 - **Project State:** Phase 7 stacks and manifests complete. Full observability with listed tools. All prior complete.
 
 ## Phase Completion Summary
@@ -19,7 +19,7 @@
 | 4     | Polish & Production           | ✅ Done    | All sub-items: API key auth, rate limiting fn, improved metrics, docker with pre-download, benches, UI polish, env/clap config | Full Phase 4 complete. See details in code and README. |
 | 5     | Documentation & Demo          | ✅ Done    | Sample dataset loader (src/dataset.rs + generate_synthetic), eval_recall example + harness (recall@K), excellent README (Mermaid, setup, benchmarks, load testing with oha/wrk, deployment, ADRs notes, demo queries), CONTRIBUTING.md, docs/adr/ (2 ADRs) | Phase 5 complete. All items delivered. |
 | 6     | Advanced (future)             | ✅ Done | Hybrid; metadata filter opt; scalar + PQ quant; collections/multi-index + sharding; gRPC stub + OpenAI; UI+auth+tenancy; quant in sled default; benchmarks w/ quant | All Phase 6 items complete. |
-| 7     | Observability, Testing, CI/CD & Deployment | 🟡 Started | Enhanced Prometheus (labels, gauges), tracing instrument, CI workflow (test/clippy/docker/bench) | Phase 7 in progress. |
+| 7     | Observability, Testing, CI/CD & Deployment | 🟢 Core Done | Enhanced Prometheus (HNSW gauges + quant_error histograms per collection), OTEL, full CI (test+clippy+docker+actual benches for regression + load-test job using scripts/load_test.sh), k8s/helm, docker observability stacks | Phase 7 core complete. Load + bench-regression + metrics done. |
 
 ## Detailed Progress Within Phase 1 (Core Engine)
 

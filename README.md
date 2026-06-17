@@ -227,9 +227,17 @@ cargo bench
 Load testing:
 
 ```bash
-# Install oha or wrk
+# Start server
+cargo run -- serve --port 8080
+
+# Use built-in load test (pure bash/curl, works in any env; falls back gracefully)
+./scripts/load_test.sh --base http://127.0.0.1:8080 --ingests 200 --searches 400 --concurrency 8
+
+# Or with oha/wrk for high throughput reports
 oha -n 10000 -c 50 http://localhost:8080/search -m POST -H 'Content-Type: application/json' -d '{"query":"test query","limit":5}'
 ```
+
+CI runs reduced `cargo bench` (for regression visibility in logs) + automated load job against live server.
 
 Expect high QPS with low latency for HNSW.
 
