@@ -461,6 +461,17 @@ impl VectorEngine {
         self.pq = Some(ProductQuantizer::train(samples, 8, 256));
     }
 
+    /// Retrieval-only helper for frameworks (Phase 9 adapter).
+    /// Returns top docs for a query (vector or hybrid).
+    pub fn retrieve(&self, query: &str, limit: usize, hybrid: bool) -> Result<Vec<SearchResult>> {
+        if hybrid {
+            self.hybrid_search(query, limit)
+        } else {
+            let emb = embed(query).map_err(|e| VectorError::Internal(e.to_string()))?;
+            self.search(&emb, limit)
+        }
+    }
+
     /// Get a document by ID (useful for debugging).
     pub fn get(&self, id: Uuid) -> Option<&Document> {
         self.docs.get(&id)
