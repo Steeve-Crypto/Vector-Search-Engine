@@ -39,6 +39,8 @@ openssl = { version = "0.10", features = ["vendored"] }
 
 # Lightweight HTTP client for downloading the embedding model (rustls-based, no native-tls conflict)
 ureq = { version = "3", features = ["json"] }
+reqwest = { version = "0.11", default-features = false, features = ["rustls-tls", "json", "stream"] }
+futures-util = { version = "0.3", default-features = false }
 
 # Serialization for sled documents and HNSW label mappings
 bincode = "1.3"
