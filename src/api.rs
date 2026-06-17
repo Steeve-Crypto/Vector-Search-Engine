@@ -34,7 +34,7 @@ use tokio::sync::Mutex;
 use tower_http::{cors::CorsLayer, limit::RequestBodyLimitLayer, services::ServeDir, trace::TraceLayer};
 use tower_governor::{governor::GovernorConfigBuilder, key_extractor::SmartIpKeyExtractor, GovernorLayer};
 use sled;
-use tracing::info;
+use tracing::{info, instrument};
 
 use crate::{collection::Collections, EngineConfig, SearchResult, embed};
 
@@ -152,6 +152,7 @@ impl From<crate::EmbedderError> for ApiError {
 // Handlers
 // ============================================================================
 
+#[instrument(skip(state), fields(collection = %payload.collection))]
 pub async fn ingest_handler(
     State(state): State<AppState>,
     Json(payload): Json<IngestRequest>,
@@ -160,7 +161,7 @@ pub async fn ingest_handler(
         return Err(ApiError::BadRequest("text cannot be empty".into()));
     }
 
-    let timer = SEARCH_LATENCY.with_label_values(&["ingest"]).start_timer();
+    let timer = SEARCH_LATENCY.with_label_values(&[&payload.collection, "false"]).start_timer();
     let embedding = embed(&payload.text)?;
     let metadata = payload.metadata.unwrap_or(serde_json::Value::Null);
 
@@ -170,7 +171,8 @@ pub async fn ingest_handler(
     drop(timer);
 
     info!(document_id = %id, collection = %payload.collection, "ingested via API");
-    INGEST_COUNTER.inc();
+    INGEST_COUNTER.with_label_values(&[&payload.collection]).inc();
+    DOCS_GAUGE.with_label_values(&[&payload.collection]).set(engine.len() as i64); // update gauge after ingest
 
     Ok(Json(serde_json::json!({
         "id": id,
@@ -212,6 +214,7 @@ pub async fn batch_ingest_handler(
     })))
 }
 
+#[instrument(skip(state), fields(collection = %payload.collection, hybrid = %payload.hybrid))]
 pub async fn search_handler(
     State(state): State<AppState>,
     Json(payload): Json<SearchRequest>,
@@ -222,7 +225,7 @@ pub async fn search_handler(
 
     let limit = payload.limit.clamp(1, 1000);
 
-    let timer = SEARCH_LATENCY.with_label_values(&["search"]).start_timer();
+    let timer = SEARCH_LATENCY.with_label_values(&[&payload.collection, &payload.hybrid.to_string()]).start_timer();
     let mut cols = state.collections.lock().await;
     let engine = cols.get_or_create(&payload.collection, EngineConfig::default())?;
 
@@ -240,7 +243,8 @@ pub async fn search_handler(
         engine.search(&query_emb, fetch_k)?
     };
     drop(timer); // ends timer
-    SEARCH_COUNTER.inc();
+    SEARCH_COUNTER.with_label_values(&[&payload.collection, &payload.hybrid.to_string()]).inc();
+    DOCS_GAUGE.with_label_values(&[&payload.collection]).set(engine.len() as i64);
 
     if let Some(min) = payload.min_score {
         results.retain(|r| r.score >= min);
@@ -268,6 +272,7 @@ pub async fn stats_handler(State(state): State<AppState>) -> Json<StatsResponse>
     let mut cols = state.collections.lock().await;
     let engine = cols.get_or_create("default", EngineConfig::default()).unwrap();
     let stats = engine.stats();
+    DOCS_GAUGE.with_label_values(&["default"]).set(engine.len() as i64);
 
     Json(StatsResponse {
         num_documents: stats.num_documents,
@@ -276,23 +281,31 @@ pub async fn stats_handler(State(state): State<AppState>) -> Json<StatsResponse>
     })
 }
 
-pub async fn health_handler(_state: State<AppState>) -> Json<HealthResponse> {
+pub async fn health_handler() -> Json<HealthResponse> {
     Json(HealthResponse {
         status: "ok".to_string(),
     })
 }
 
-// Basic Prometheus metrics (incremented from handlers if desired)
-static INGEST_COUNTER: std::sync::LazyLock<prometheus::IntCounter> =
+// Advanced Prometheus metrics for Phase 7 observability (labeled by collection where applicable)
+static INGEST_COUNTER: std::sync::LazyLock<prometheus::IntCounterVec> =
     std::sync::LazyLock::new(|| {
-        prometheus::register_int_counter!("vector_ingest_total", "Total documents ingested")
-            .expect("failed to register ingest counter")
+        prometheus::register_int_counter_vec!(
+            "vector_ingest_total",
+            "Total documents ingested",
+            &["collection"]
+        )
+        .expect("failed to register ingest counter")
     });
 
-static SEARCH_COUNTER: std::sync::LazyLock<prometheus::IntCounter> =
+static SEARCH_COUNTER: std::sync::LazyLock<prometheus::IntCounterVec> =
     std::sync::LazyLock::new(|| {
-        prometheus::register_int_counter!("vector_search_total", "Total search requests")
-            .expect("failed to register search counter")
+        prometheus::register_int_counter_vec!(
+            "vector_search_total",
+            "Total search requests",
+            &["collection", "hybrid"]
+        )
+        .expect("failed to register search counter")
     });
 
 static SEARCH_LATENCY: std::sync::LazyLock<prometheus::HistogramVec> =
@@ -300,9 +313,19 @@ static SEARCH_LATENCY: std::sync::LazyLock<prometheus::HistogramVec> =
         prometheus::register_histogram_vec!(
             "vector_search_latency_seconds",
             "Search latency in seconds",
-            &["endpoint"]
+            &["collection", "hybrid"]
         )
         .expect("failed to register latency histogram")
+    });
+
+static DOCS_GAUGE: std::sync::LazyLock<prometheus::IntGaugeVec> =
+    std::sync::LazyLock::new(|| {
+        prometheus::register_int_gauge_vec!(
+            "vector_docs_total",
+            "Current number of documents in collection",
+            &["collection"]
+        )
+        .expect("failed to register docs gauge")
     });
 
 pub async fn metrics_handler() -> impl IntoResponse {

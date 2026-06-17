@@ -199,3 +199,12 @@ After completing Phase 4 (and prior), the following issues were identified and a
 These ensure the project is robust, observable, and production-viable. Prioritize based on usage (e.g., Docker + UI first for demos).
 
 **Next Milestones**: Phase 5 (Docs & Demo) incorporating above, or targeted fixes.
+
+### Phase 7: Observability, Testing, CI/CD, and Production Deployment
+- Advanced observability: custom Prometheus metrics (HNSW build/search latency, index size, recall estimates, quant error), distributed tracing spans for full request lifecycle.
+- Comprehensive testing: integration tests (API + persistence), fuzz/property tests for quant/HNSW, load tests with oha, benchmark regression tests.
+- CI/CD pipeline: GitHub Actions (test, clippy, bench, docker build/publish, security scan).
+- Production deployment: Kubernetes manifests, Helm chart, docker-compose for full stack (app + prometheus + grafana + jaeger).
+- Security & hardening: request validation, per-collection API keys, rate limiting with backpressure, HTTPS, secrets management.
+- Performance: profiling (flamegraph), optimizations (async batching for embeds, parallel HNSW ops if possible), memory profiling for quant/collections.
+- Demo & ops: full end-to-end demo script, ops runbook (scaling, backup, monitoring alerts).

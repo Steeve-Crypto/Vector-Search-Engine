@@ -4,9 +4,9 @@
 **Reference Plan:** See [plan.md](./plan.md) for the full phased breakdown.
 
 ## Current Overall Status
-- **Active Phase:** Phase 6 complete.
-- **Last Completed Major Work:** All Phase 6: integrate quant to sled default, full PQ, collections/multi, gRPC stub, better UI, benchmarks w/ quant, etc.
-- **Project State:** Phase 6 fully done. All listed items implemented. Ready for use. Tests pass.
+- **Active Phase:** Phase 7 (Observability, Testing, CI/CD & Deployment) started.
+- **Last Completed Major Work:** Enhanced Prometheus metrics with collection/hybrid labels + gauge; added tracing::instrument to handlers; created .github/workflows/ci.yml for test/clippy/docker/bench; plan updated with Phase 7 details.
+- **Project State:** Phase 7 observability and CI started. All prior complete. Tests pass.
 
 ## Phase Completion Summary
 
@@ -19,6 +19,7 @@
 | 4     | Polish & Production           | ✅ Done    | All sub-items: API key auth, rate limiting fn, improved metrics, docker with pre-download, benches, UI polish, env/clap config | Full Phase 4 complete. See details in code and README. |
 | 5     | Documentation & Demo          | ✅ Done    | Sample dataset loader (src/dataset.rs + generate_synthetic), eval_recall example + harness (recall@K), excellent README (Mermaid, setup, benchmarks, load testing with oha/wrk, deployment, ADRs notes, demo queries), CONTRIBUTING.md, docs/adr/ (2 ADRs) | Phase 5 complete. All items delivered. |
 | 6     | Advanced (future)             | ✅ Done | Hybrid; metadata filter opt; scalar + PQ quant; collections/multi-index + sharding; gRPC stub + OpenAI; UI+auth+tenancy; quant in sled default; benchmarks w/ quant | All Phase 6 items complete. |
+| 7     | Observability, Testing, CI/CD & Deployment | 🟡 Started | Enhanced Prometheus (labels, gauges), tracing instrument, CI workflow (test/clippy/docker/bench) | Phase 7 in progress. |
 
 ## Detailed Progress Within Phase 1 (Core Engine)
 
