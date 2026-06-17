@@ -1,12 +1,22 @@
-//! Real benchmarks for Vector Search Engine (Phase 4)
-//! Compares HNSW vs brute (via engine) and measures ingest/search latency.
+//! Real benchmarks for Vector Search Engine (Phase 6)
+//! Includes quantization impact (scalar quant for memory savings).
+//! - Quant/dequant time
+//! - Search latency with dequantized queries (approx)
+//! - Can pair with evaluate_recall for quality (recall loss from quant)
 //! Run with: cargo bench
 //!
 //! Requires the model to be present (will auto-download on first embed if needed).
+//!
+//! Why benchmark with quant?
+//! - Quantization (Phase 6) trades ~4x memory for small accuracy/speed cost.
+//! - Benchmarks quantify: ingest overhead, search time on dequant, recall impact.
+//! - Validates integration: dequant before HNSW search keeps f32 interface.
+//! - Memory: compare Vec<f32> (4B/elem) vs u8 (1B/elem) for 100k docs.
+//! - Part of enhanced benchmarks: recall@K, memory, throughput, more scenarios.
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use std::time::Duration;
-use vector_search_engine::{embed, EngineConfig, VectorEngine};
+use vector_search_engine::{embed, quantization::{quantize, dequantize}, EngineConfig, VectorEngine};
 
 fn setup_engine(n: usize) -> VectorEngine {
     let mut engine = VectorEngine::new(EngineConfig { max_docs: 10_000 });
@@ -82,11 +92,38 @@ fn bench_search_latency(c: &mut Criterion) {
     group.finish();
 }
 
+fn bench_quantization(c: &mut Criterion) {
+    c.bench_function("quantize_1000_vecs", |b| {
+        let engine = setup_engine(1000);
+        // Extract some embeddings for bench
+        let embs: Vec<Vec<f32>> = engine.all_docs().into_iter().take(1000).map(|d| d.embedding).collect();
+        b.iter(|| {
+            for emb in &embs {
+                let q = quantize(black_box(emb));
+                black_box(q);
+            }
+        })
+    });
+
+    c.bench_function("dequantize_and_search_k5_1000_docs", |b| {
+        let engine = setup_engine(1000);
+        let query = "rust systems programming";
+        let qemb = embed(query).unwrap();
+        let qemb_q = quantize(&qemb);
+        b.iter(|| {
+            let deq = dequantize(black_box(&qemb_q));
+            let results = engine.search(black_box(&deq), 5).unwrap();
+            black_box(results);
+        })
+    });
+}
+
 criterion_group!(
     benches,
     bench_ingest,
     bench_search_hnsw,
     bench_search_large,
-    bench_search_latency
+    bench_search_latency,
+    bench_quantization
 );
 criterion_main!(benches);

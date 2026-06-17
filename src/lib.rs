@@ -17,6 +17,7 @@ pub mod api;
 pub mod collection;
 pub mod dataset;
 pub mod embedder;
+pub mod grpc_stub;
 pub mod hnsw_index;
 pub mod quantization;
 
@@ -24,9 +25,18 @@ pub mod quantization;
 pub use embedder::{download_model_if_needed, embed, embed_batch, Embedder, EmbedderError};
 
 // Re-export HNSW types so higher layers (and tests) can use them directly if needed
-pub use collection::Collections;
+pub use collection::{Collections, ShardedCollections};
 pub use hnsw_index::{HnswConfig, HnswIndex, HnswStats};
-pub use quantization::{dequantize, quantize, QuantizedVector};
+pub use quantization::{dequantize, quantize, QuantizedVector, ProductQuantizer};
+
+/// Internal struct for sled storage with quantized embedding (Phase 6 integration).
+#[derive(serde::Serialize, serde::Deserialize)]
+struct StoredDocument {
+    id: Uuid,
+    text: String,
+    embedding: Vec<u8>,  // quantized by default
+    metadata: String,    // JSON as string to allow bincode
+}
 
 use std::path::Path;
 use tracing::{debug, info, warn};
@@ -168,10 +178,17 @@ impl VectorEngine {
         for res in db.iter() {
             raw_count += 1;
             let (_key, val) = res.map_err(|e| VectorError::Internal(e.to_string()))?;
-            match serde_json::from_slice::<Document>(&val) {
-                Ok(doc) => {
-                    let id = doc.id;
-                    let emb = doc.embedding.clone();
+            match bincode::deserialize::<StoredDocument>(&val) {
+                Ok(stored) => {
+                    let id = stored.id;
+                    let emb = dequantize(&stored.embedding);
+                    let metadata: Metadata = serde_json::from_str(&stored.metadata).unwrap_or(serde_json::Value::Null);
+                    let doc = Document {
+                        id,
+                        text: stored.text,
+                        embedding: emb.clone(),
+                        metadata,
+                    };
                     engine.docs.insert(id, doc);
                     let _ = engine.hnsw.insert(&emb, id);
                     loaded_count += 1;
@@ -202,19 +219,27 @@ impl VectorEngine {
             }
         }
 
+        let metadata_str = serde_json::to_string(&metadata).unwrap_or_default();
         let doc = Document::new(text, embedding.clone(), metadata)?;
         let id = doc.id;
 
         // Persist to sled first (if enabled)
-        // Use serde_json because bincode doesn't support serde_json::Value's deserialize_any
+        // Phase 6: integrate quant into sled storage by default
         if let Some(db) = &self.db {
             let key = id.as_bytes();
-            let val = serde_json::to_vec(&doc)
+            let qemb = quantize(&embedding);
+            let stored = StoredDocument {
+                id,
+                text: doc.text.clone(),
+                embedding: qemb,
+                metadata: metadata_str,
+            };
+            let val = bincode::serialize(&stored)
                 .map_err(|e| VectorError::Internal(e.to_string()))?;
             db.insert(key, val)
                 .map_err(|e| VectorError::Internal(e.to_string()))?;
             let _ = db.flush();
-            info!(db_len_after_write = db.len(), "wrote document to sled");
+            info!(db_len_after_write = db.len(), "wrote document to sled (quantized by default)");
         }
 
         self.docs.insert(id, doc);

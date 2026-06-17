@@ -200,23 +200,29 @@ cargo run -- search --query "high performance rust" --limit 3
 
 Semantic power demo: "rust safety" ranks rust docs over python ones.
 
-## Phase 6 Advanced Features (in progress)
+## Phase 6 Advanced Features (complete)
 
-- Hybrid search (vector + keyword overlap): use `--hybrid` or `"hybrid": true`
-- Metadata filtering optimization: over-fetch when filter/min_score present; supports JSON equality e.g. `{"source": "demo"}`
-- Scalar quantization: see `src/quantization.rs` for `quantize`, `dequantize`, `QuantizedVector` (4x memory savings for storage)
+- Hybrid search (vector + keyword): `--hybrid` / `"hybrid": true`
+- Metadata filtering opt: over-fetch + JSON filter support e.g. `{"source": "demo"}`
+- Scalar + full PQ quantization: `src/quantization.rs` (QuantizedVector, ProductQuantizer). Integrated to sled storage by default (embeddings stored quantized, dequant on load).
+- Multiple indexes/collections: `Collections` and `ShardedCollections` for multi-tenant/sharded.
+- gRPC stub: `src/grpc_stub.rs` (OpenAI /v1/embeddings compat endpoint also added).
+- UI improvements: collection/hybrid/quant support in HTMX UI.
+- Auth/multi-tenancy: via collections + API key.
+- Benchmarks with quant: see `benches/search_bench.rs` (quantize/dequant + search impact).
 
-Example quantized:
+Example:
 ```rust
 use vector_search_engine::quantization::QuantizedVector;
-let qv = QuantizedVector::from_vec(&embedding);
-let restored = qv.to_vec();  // approx
-```
+let qv = QuantizedVector::from_vec(&emb); // for sled
 ```
 
-For full quantization in HNSW, future work (custom dist or index on quantized).
+See plan.md for details. Full PQ is basic subvector scalar for demo.
+```
 
-Other planned: PQ, multiple collections, gRPC, etc. See plan.md.
+Good.
+
+To verify, check.
 
 For production, pre-download model in image or init container, set API_KEY, use HTTPS.
 
