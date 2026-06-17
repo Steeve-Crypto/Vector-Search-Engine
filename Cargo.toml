@@ -90,6 +90,8 @@ criterion = "0.5"
 default = []
 # Phase 8 gRPC: enables tonic server. Requires `protoc` (protobuf-compiler) on the build machine.
 grpc = ["dep:tonic", "dep:prost"]
+# Phase 11: client only (no server)
+client = ["grpc"]
 
 [[bench]]
 name = "search_bench"
