@@ -68,6 +68,10 @@ pub struct SearchRequest {
     pub query: String,
     #[serde(default = "default_limit")]
     pub limit: usize,
+    #[serde(default)]
+    pub min_score: Option<f32>,
+    #[serde(default)]
+    pub metadata_filter: Option<String>,
     // Future: filters, ef_search override, etc.
 }
 
@@ -209,9 +213,20 @@ pub async fn search_handler(
 
     let timer = SEARCH_LATENCY.with_label_values(&["search"]).start_timer();
     let engine = state.engine.lock().await;
-    let results = engine.search(&query_emb, limit)?;
+    let mut results = engine.search(&query_emb, limit)?;
     drop(timer); // ends timer
     SEARCH_COUNTER.inc();
+
+    if let Some(min) = payload.min_score {
+        results.retain(|r| r.score >= min);
+    }
+    if let Some(f) = &payload.metadata_filter {
+        results.retain(|r| {
+            serde_json::to_string(&r.metadata)
+                .unwrap_or_default()
+                .contains(f)
+        });
+    }
 
     Ok(Json(SearchResponse {
         count: results.len(),

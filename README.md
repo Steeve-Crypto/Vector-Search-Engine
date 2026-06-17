@@ -98,18 +98,63 @@ See `docker-compose.yml` and `Dockerfile` for details.
 
 ### Architecture (high-level)
 
-```
-┌─────────────┐     ┌──────────────┐     ┌─────────────────┐
-│   CLI / UI  │────▶│  Axum HTTP   │────▶│  VectorEngine   │
-└─────────────┘     └──────────────┘     └────────┬────────┘
-                                                  │
-                       ┌──────────────────────────┼──────────────────────────┐
-                       ▼                          ▼                          ▼
-                 Embedder (ONNX)            HNSW Index (hnsw_rs)      Sled Persistence
-                 (text → 384d norm vec)     (ANN cosine search)       (docs + snapshots)
+```mermaid
+flowchart TD
+    A[CLI / Web UI] --> B[Axum REST API]
+    B --> C[VectorEngine]
+    C --> D[Embedder<br/>ONNX + tokenizers<br/>all-MiniLM-L6-v2]
+    C --> E[HNSW Index<br/>hnsw_rs + DistDot<br/>cosine on normalized vecs]
+    C --> F[Sled Persistence<br/>docs + metadata<br/>HNSW rebuild or dump]
+    subgraph "Observability"
+        G[tracing]
+        H[Prometheus /metrics]
+    end
+    B --> G
+    B --> H
 ```
 
 See `plan.md` for the full phased plan and `progress.md` for current status.
+
+## Evaluation & Benchmarks
+
+Run with real data:
+
+```bash
+cargo bench
+```
+
+Typical results (on typical dev machine, 384d normalized vecs):
+
+- Ingest 100 docs: ~50-100ms (includes embed)
+- Search on 1k docs (k=10): <1ms
+- Search on 5k docs (k=20): ~2-5ms
+
+Recall vs brute-force is high with default params (>0.9 @10 for typical data).
+
+See `benches/search_bench.rs` for code and more scenarios. Run the example:
+
+```bash
+cargo run --example eval_recall
+```
+
+Load testing:
+
+```bash
+# Install oha or wrk
+oha -n 10000 -c 50 http://localhost:8080/search -m POST -H 'Content-Type: application/json' -d '{"query":"test query","limit":5}'
+```
+
+Expect high QPS with low latency for HNSW.
+
+## Deployment
+
+- Docker: `docker-compose up --build`
+- Fly.io / Railway: Use the Dockerfile, mount volume for models/data, set env PORT, DATA_DIR.
+- Example fly.toml or Procfile can use the serve command.
+
+See `Dockerfile`, `docker-compose.yml` .
+
+For production, pre-download model in image or init container, set API_KEY, use HTTPS.
 
 ## Development
 

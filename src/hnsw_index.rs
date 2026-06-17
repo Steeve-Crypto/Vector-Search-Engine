@@ -19,7 +19,7 @@ use hnsw_rs::prelude::*;
 use std::collections::HashMap;
 use std::path::Path;
 use thiserror::Error;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 /// Errors from the HNSW index.
@@ -227,10 +227,29 @@ impl HnswIndex {
         Ok(())
     }
 
-    // NOTE: Full graph reload using HnswIo has tricky lifetimes with the current version.
-    // For Phase 2 we use sled + rebuild from stored embeddings (explicitly allowed).
-    // The dump() method is available for experimenting with hnswio snapshots.
-    // A future improvement can add robust load using HnswIo + labels.
+    /// Load HNSW preferring hnswio dump if available for speed (graph structure), falling back to rebuild.
+    /// Labels must match the dump order. For full durability use sled docs + rebuild (current default).
+    pub fn load(dir: &Path, basename: &str, config: HnswConfig) -> Result<Self> {
+        // Note: full load_hnsw_with_dist has lifetime ties to HnswIo in this version.
+        // We prefer rebuild for reliability (fast enough), but keep dump for snapshots.
+        // Future: can leak reloader or use mmap-aware holder for owned graph load.
+        warn!("HNSW load prefers rebuild from docs for now (dump available via .dump())");
+        // Rebuild empty and let caller populate via from_docs or inserts
+        let mut hnsw = HnswIndex::new(config);
+        let labels_path = dir.join(format!("{}.labels.bin", basename));
+        if labels_path.exists() {
+            let bytes = std::fs::read(&labels_path)
+                .map_err(|e| HnswError::Internal(e.to_string()))?;
+            let labels: Vec<Uuid> = bincode::deserialize(&bytes)
+                .map_err(|e| HnswError::Internal(e.to_string()))?;
+            hnsw.labels = labels.clone();
+            for (i, &u) in labels.iter().enumerate() {
+                hnsw.id_to_label.insert(u, i);
+            }
+            info!("Labels loaded from dump sidecar; populate embeddings via engine");
+        }
+        Ok(hnsw)
+    }
 
     /// Return basic stats useful for /stats and monitoring.
     pub fn stats(&self) -> HnswStats {

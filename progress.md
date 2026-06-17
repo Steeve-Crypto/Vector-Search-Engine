@@ -4,9 +4,9 @@
 **Reference Plan:** See [plan.md](./plan.md) for the full phased breakdown.
 
 ## Current Overall Status
-- **Active Phase:** Phase 4 complete + fixes applied.
-- **Last Completed Major Work:** All Phase 4 + review fixes: re-enabled rate layer with `tower_governor` dep (SmartIpKeyExtractor + `into_make_service_with_connect_info` to fix "Unable To Extract Key!" 500s), persistent sled rate limiting implemented, more bench datasets added, plan.md updated with all recs + more.
-- **Project State:** No more 500s from rate key extraction. Governor active for per-IP limits. Persistent rate fn complete (sled for durability). Full review passed (tests clean, clippy clean after fixes). Production + demo ready.
+- **Active Phase:** Phase 5 (Documentation & Demo) started; Phase 4 fixes integrated.
+- **Last Completed Major Work:** Phase 5 start: evaluation harness (evaluate_recall + example), README enhanced with Mermaid, benchmarks, load testing, deployment; added min_score + metadata_filter to search API; HNSW load stub improved.
+- **Project State:** Eval example works (recall 1.0 on small). API supports advanced search params. README much better. Ready for full docs, sample data, ADRs. All prior complete.
 
 ## Phase Completion Summary
 
@@ -17,7 +17,7 @@
 | 2     | Persistence & Storage         | ✅ Core Done | sled for documents (JSON serialized) + HNSW rebuild on load from embeddings; survives restarts | Implemented open_persistent + auto-write on ingest. Rebuild is reliable. Graph snapshot via hnswio available but not primary yet. |
 | 3     | API Layer                     | ✅ Done    | Full Axum routes (POST /ingest + /batch, POST /search, GET /stats /health /metrics), JSON models, error handling, CORS+trace middleware, metrics | CLI `serve` now fully functional with persistent engine |
 | 4     | Polish & Production           | ✅ Done    | All sub-items: API key auth, rate limiting fn, improved metrics, docker with pre-download, benches, UI polish, env/clap config | Full Phase 4 complete. See details in code and README. |
-| 5     | Documentation & Demo          | ⏳ Pending | Full README + Mermaid, benchmarks, load-test guide, sample data, deployment | Partial README exists |
+| 5     | Documentation & Demo          | 🟡 Started | Eval harness + example, README with Mermaid/benches/loadtest/deploy, basic metadata filter + min_score in API | Phase 5 in progress; HNSW load stub, more recs in plan |
 | 6     | Advanced (future)             | ⏳ Future  | Hybrid, quantization, filtering, gRPC, etc.          | Out of MVP scope |
 
 ## Detailed Progress Within Phase 1 (Core Engine)

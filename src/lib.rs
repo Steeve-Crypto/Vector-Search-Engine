@@ -258,6 +258,35 @@ impl VectorEngine {
         Ok(results)
     }
 
+    /// Evaluation harness (Phase 5): approximate recall@K vs brute-force on current docs.
+    /// Returns average recall over the provided query embeddings.
+    pub fn evaluate_recall(&self, query_embeddings: &[Vec<f32>], k: usize) -> f64 {
+        if self.is_empty() || query_embeddings.is_empty() || k == 0 {
+            return 1.0;
+        }
+        let mut total = 0.0;
+        for q in query_embeddings {
+            let hnsw_res = match self.search(q, k) {
+                Ok(r) => r,
+                Err(_) => continue,
+            };
+            let hnsw_ids: std::collections::HashSet<_> = hnsw_res.into_iter().map(|r| r.id).collect();
+
+            // brute force top-k
+            let mut scored: Vec<(Uuid, f32)> = self
+                .docs
+                .values()
+                .map(|doc| (doc.id, cosine_similarity(&doc.embedding, q)))
+                .collect();
+            scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+            let brute_ids: std::collections::HashSet<_> = scored.into_iter().take(k).map(|(id, _)| id).collect();
+
+            let hits = hnsw_ids.intersection(&brute_ids).count();
+            total += hits as f64 / k as f64;
+        }
+        total / query_embeddings.len() as f64
+    }
+
     pub fn len(&self) -> usize {
         self.docs.len()
     }
@@ -449,5 +478,17 @@ mod tests {
             serde_json::Value::Null,
         );
         assert!(matches!(bad_dim, Err(VectorError::DimMismatch { .. })));
+    }
+
+    #[test]
+    fn test_evaluate_recall() {
+        let mut engine = VectorEngine::new(EngineConfig::default());
+        let emb1 = embed("rust is fast and safe for systems").unwrap();
+        let emb1b = embed("rust programming language is fast").unwrap();  // similar
+        let emb2 = embed("completely unrelated cooking recipes").unwrap();
+        let _ = engine.ingest("rust is fast and safe for systems".into(), emb1.clone(), serde_json::json!({}));
+        let _ = engine.ingest("completely unrelated cooking recipes".into(), emb2, serde_json::json!({}));
+        let recall = engine.evaluate_recall(&[emb1b], 1);
+        assert!(recall > 0.5, "recall should be reasonable for similar query, got {}", recall);
     }
 }
