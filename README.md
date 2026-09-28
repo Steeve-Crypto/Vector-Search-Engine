@@ -4,6 +4,18 @@ A complete, from-scratch, production-grade **vector database / semantic search e
 
 It lets you ingest natural language documents, generate high-quality embeddings locally, and retrieve the most semantically similar items with low latency — all without sending data to any external service.
 
+## Demo
+
+Live screenshots from a local run (Rust binary + ONNX `all-MiniLM-L6-v2` + HNSW) on Linux:
+
+![Semantic search UI — private local embeddings for RAG](docs/demo/ui-search.png)
+
+![Hybrid search UI — HNSW vector search](docs/demo/ui-hybrid.png)
+
+![POST /search curl + JSON response](docs/demo/api-search.png)
+
+Scores and texts are from a real local ingest/search on six sample docs. No invented metrics.
+
 ### What makes it different
 - **Fully local & private** — embeddings are produced using ONNX Runtime + the `all-MiniLM-L6-v2` model. No OpenAI, no cloud.
 - **Hybrid search** — combines vector similarity with keyword overlap for best-of-both-worlds results.
